@@ -1,62 +1,73 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GameAuthAPI.Services;
 
 namespace GameAuthAPI.Models
 {
-    /// <summary>
-    /// Модель сообщения чата.
-    /// </summary>
     public class ChatMessage
     {
         [Key]
         public int Id { get; set; }
 
-        /// <summary>
-        /// ID отправителя.
-        /// </summary>
         public int SenderId { get; set; }
 
-        /// <summary>
-        /// Отправитель сообщения.
-        /// </summary>
         [ForeignKey("SenderId")]
-        public Player Sender { get; set; }
+        public Player Sender { get; set; } = null!;
 
-        /// <summary>
-        /// ID получателя (если это личное сообщение).
-        /// </summary>
         public int? ReceiverId { get; set; }
 
-        /// <summary>
-        /// Получатель сообщения (если это личное сообщение).
-        /// </summary>
         [ForeignKey("ReceiverId")]
-        public Player Receiver { get; set; }
+        public Player? Receiver { get; set; }
 
-        /// <summary>
-        /// Текст сообщения.
-        /// </summary>
-        [Required]
-        public string Message { get; set; }
+        // ========== ШИФРОВАННОЕ СООБЩЕНИЕ ==========
+        public string MessageEncrypted { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Дата и время отправки сообщения.
-        /// </summary>
+        [NotMapped]
+        public string Message
+        {
+            get => DecryptMessage(MessageEncrypted);
+            set => MessageEncrypted = EncryptMessage(value);
+        }
+
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-
-        /// <summary>
-        /// Тип сообщения (личное или общее).
-        /// </summary>
         public ChatMessageType Type { get; set; } = ChatMessageType.Global;
+
+        private static EncryptionService? _encryptionService;
+
+        private EncryptionService GetEncryptionService()
+        {
+            if (_encryptionService == null)
+            {
+                var config = new ConfigurationBuilder()
+                    .AddJsonFile("appsettings.json")
+                    .Build();
+                _encryptionService = new EncryptionService(config);
+            }
+            return _encryptionService;
+        }
+
+        private string EncryptMessage(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return string.Empty;
+
+            return GetEncryptionService().Encrypt(message);
+        }
+
+        private string DecryptMessage(string encrypted)
+        {
+            if (string.IsNullOrEmpty(encrypted))
+                return string.Empty;
+
+            return GetEncryptionService().TryDecrypt(encrypted, out var result) ? result : "[SHIFROVANO]";
+        }
     }
 
-    /// <summary>
-    /// Тип сообщения чата.
-    /// </summary>
     public enum ChatMessageType
     {
-        Global, // Общее сообщение
-        Private // Личное сообщение
+        Global,
+        Private,
+        Guild
     }
 }

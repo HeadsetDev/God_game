@@ -19,11 +19,16 @@ namespace GameAuthAPI.Data
         public DbSet<Location> Locations { get; set; }
         public DbSet<Mob> Mobs { get; set; }
         public DbSet<NPC> NPCs { get; set; }
-
-        // Добавляем новые DbSet для гильдий и групповых квестов
         public DbSet<Guild> Guilds { get; set; }
         public DbSet<PlayerGuild> PlayerGuilds { get; set; }
         public DbSet<QuestParticipant> QuestParticipants { get; set; }
+        public DbSet<Skill> Skills { get; set; }
+        public DbSet<PlayerSkill> PlayerSkills { get; set; }
+
+        //  НОВЫЙ DbSet ДЛЯ PvP ДУЭЛЕЙ
+        public DbSet<Duel> Duels { get; set; }
+
+        public DbSet<AuctionLot> AuctionLots { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -199,6 +204,38 @@ namespace GameAuthAPI.Data
                 .HasOne(n => n.SpawnLocation)
                 .WithMany()
                 .HasForeignKey(n => n.SpawnLocationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ===================== НАСТРОЙКИ ДЛЯ НАВЫКОВ =====================
+
+            // Настройка связи Player и Skill (через PlayerSkill)
+            modelBuilder.Entity<PlayerSkill>()
+                .HasKey(ps => new { ps.PlayerId, ps.SkillId });
+
+            modelBuilder.Entity<PlayerSkill>()
+                .HasOne(ps => ps.Player)
+                .WithMany(p => p.PlayerSkills)
+                .HasForeignKey(ps => ps.PlayerId);
+
+            modelBuilder.Entity<PlayerSkill>()
+                .HasOne(ps => ps.Skill)
+                .WithMany(s => s.PlayerSkills)
+                .HasForeignKey(ps => ps.SkillId);
+
+            // ===================== НАСТРОЙКИ ДЛЯ PvP ДУЭЛЕЙ =====================
+
+            // Настройка связи для Duel (вызывающий игрок)
+            modelBuilder.Entity<Duel>()
+                .HasOne(d => d.Challenger)
+                .WithMany()
+                .HasForeignKey(d => d.ChallengerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Настройка связи для Duel (оппонент)
+            modelBuilder.Entity<Duel>()
+                .HasOne(d => d.Opponent)
+                .WithMany()
+                .HasForeignKey(d => d.OpponentId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }

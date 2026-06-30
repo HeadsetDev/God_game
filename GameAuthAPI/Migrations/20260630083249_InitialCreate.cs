@@ -12,6 +12,21 @@ namespace GameAuthAPI.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "Guilds",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    LeaderId = table.Column<int>(type: "int", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Guilds", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Items",
                 columns: table => new
                 {
@@ -128,6 +143,7 @@ namespace GameAuthAPI.Migrations
                     Role = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Level = table.Column<int>(type: "int", nullable: false),
                     Coins = table.Column<int>(type: "int", nullable: false),
+                    Crystals = table.Column<int>(type: "int", nullable: false),
                     CurrentLocationId = table.Column<int>(type: "int", nullable: false),
                     PlayerKills = table.Column<int>(type: "int", nullable: false)
                 },
@@ -172,6 +188,31 @@ namespace GameAuthAPI.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "PlayerGuilds",
+                columns: table => new
+                {
+                    PlayerId = table.Column<int>(type: "int", nullable: false),
+                    GuildId = table.Column<int>(type: "int", nullable: false),
+                    Role = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerGuilds", x => new { x.PlayerId, x.GuildId });
+                    table.ForeignKey(
+                        name: "FK_PlayerGuilds_Guilds_GuildId",
+                        column: x => x.GuildId,
+                        principalTable: "Guilds",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_PlayerGuilds_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "PlayerTrades",
                 columns: table => new
                 {
@@ -211,6 +252,8 @@ namespace GameAuthAPI.Migrations
                     Reward = table.Column<int>(type: "int", nullable: false),
                     ConditionsJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     IsCompleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsGroupQuest = table.Column<bool>(type: "bit", nullable: false),
+                    RequiredPlayers = table.Column<int>(type: "int", nullable: false),
                     PlayerId = table.Column<int>(type: "int", nullable: true)
                 },
                 constraints: table =>
@@ -263,6 +306,30 @@ namespace GameAuthAPI.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "QuestParticipants",
+                columns: table => new
+                {
+                    QuestId = table.Column<int>(type: "int", nullable: false),
+                    PlayerId = table.Column<int>(type: "int", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QuestParticipants", x => new { x.QuestId, x.PlayerId });
+                    table.ForeignKey(
+                        name: "FK_QuestParticipants_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_QuestParticipants_Quests_QuestId",
+                        column: x => x.QuestId,
+                        principalTable: "Quests",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_ChatMessages_ReceiverId",
                 table: "ChatMessages",
@@ -293,6 +360,11 @@ namespace GameAuthAPI.Migrations
                 name: "IX_NPCs_SpawnLocationId",
                 table: "NPCs",
                 column: "SpawnLocationId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlayerGuilds_GuildId",
+                table: "PlayerGuilds",
+                column: "GuildId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlayerItems_ItemId",
@@ -331,6 +403,11 @@ namespace GameAuthAPI.Migrations
                 column: "Player2Id");
 
             migrationBuilder.CreateIndex(
+                name: "IX_QuestParticipants_PlayerId",
+                table: "QuestParticipants",
+                column: "PlayerId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Quests_Name",
                 table: "Quests",
                 column: "Name",
@@ -358,16 +435,25 @@ namespace GameAuthAPI.Migrations
                 name: "NPCs");
 
             migrationBuilder.DropTable(
+                name: "PlayerGuilds");
+
+            migrationBuilder.DropTable(
                 name: "PlayerItems");
 
             migrationBuilder.DropTable(
-                name: "Quests");
+                name: "QuestParticipants");
+
+            migrationBuilder.DropTable(
+                name: "Guilds");
 
             migrationBuilder.DropTable(
                 name: "Items");
 
             migrationBuilder.DropTable(
                 name: "PlayerTrades");
+
+            migrationBuilder.DropTable(
+                name: "Quests");
 
             migrationBuilder.DropTable(
                 name: "Players");

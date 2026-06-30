@@ -12,15 +12,15 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GameAuthAPI.Migrations
 {
     [DbContext(typeof(GameDbContext))]
-    [Migration("20250216113915_AddGuildsAndGroupQuests")]
-    partial class AddGuildsAndGroupQuests
+    [Migration("20260630105023_AddPvP")]
+    partial class AddPvP
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.1")
+                .HasAnnotation("ProductVersion", "9.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -56,6 +56,44 @@ namespace GameAuthAPI.Migrations
                     b.HasIndex("SenderId");
 
                     b.ToTable("ChatMessages");
+                });
+
+            modelBuilder.Entity("GameAuthAPI.Models.Duel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ChallengerId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("OpponentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WinnerId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChallengerId");
+
+                    b.HasIndex("OpponentId");
+
+                    b.ToTable("Duels");
                 });
 
             modelBuilder.Entity("GameAuthAPI.Models.Guild", b =>
@@ -175,7 +213,16 @@ namespace GameAuthAPI.Migrations
                     b.Property<int>("Damage")
                         .HasColumnType("int");
 
+                    b.Property<int>("Defense")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ExperienceReward")
+                        .HasColumnType("int");
+
                     b.Property<int>("Health")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Level")
                         .HasColumnType("int");
 
                     b.Property<string>("Name")
@@ -229,6 +276,9 @@ namespace GameAuthAPI.Migrations
                     b.Property<int>("Coins")
                         .HasColumnType("int");
 
+                    b.Property<int>("Crystals")
+                        .HasColumnType("int");
+
                     b.Property<int>("CurrentLocationId")
                         .HasColumnType("int");
 
@@ -244,6 +294,18 @@ namespace GameAuthAPI.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("PlayerKills")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PvP_Deaths")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PvP_Kills")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PvP_Losses")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PvP_Wins")
                         .HasColumnType("int");
 
                     b.Property<string>("Role")
@@ -308,6 +370,24 @@ namespace GameAuthAPI.Migrations
                     b.HasIndex("PlayerTradeId2");
 
                     b.ToTable("PlayerItems");
+                });
+
+            modelBuilder.Entity("GameAuthAPI.Models.PlayerSkill", b =>
+                {
+                    b.Property<int>("PlayerId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SkillId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsLearned")
+                        .HasColumnType("bit");
+
+                    b.HasKey("PlayerId", "SkillId");
+
+                    b.HasIndex("SkillId");
+
+                    b.ToTable("PlayerSkills");
                 });
 
             modelBuilder.Entity("GameAuthAPI.Models.PlayerTrade", b =>
@@ -402,6 +482,47 @@ namespace GameAuthAPI.Migrations
                     b.ToTable("QuestParticipants");
                 });
 
+            modelBuilder.Entity("GameAuthAPI.Models.Skill", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Cooldown")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Damage")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Effect")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("ManaCost")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("RequiredLevel")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Skills");
+                });
+
             modelBuilder.Entity("LocationLocation", b =>
                 {
                     b.Property<int>("ConnectedLocationsId")
@@ -433,6 +554,25 @@ namespace GameAuthAPI.Migrations
                     b.Navigation("Receiver");
 
                     b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("GameAuthAPI.Models.Duel", b =>
+                {
+                    b.HasOne("GameAuthAPI.Models.Player", "Challenger")
+                        .WithMany()
+                        .HasForeignKey("ChallengerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GameAuthAPI.Models.Player", "Opponent")
+                        .WithMany()
+                        .HasForeignKey("OpponentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Challenger");
+
+                    b.Navigation("Opponent");
                 });
 
             modelBuilder.Entity("GameAuthAPI.Models.Mob", b =>
@@ -516,6 +656,25 @@ namespace GameAuthAPI.Migrations
                     b.Navigation("Player");
                 });
 
+            modelBuilder.Entity("GameAuthAPI.Models.PlayerSkill", b =>
+                {
+                    b.HasOne("GameAuthAPI.Models.Player", "Player")
+                        .WithMany("PlayerSkills")
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GameAuthAPI.Models.Skill", "Skill")
+                        .WithMany("PlayerSkills")
+                        .HasForeignKey("SkillId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player");
+
+                    b.Navigation("Skill");
+                });
+
             modelBuilder.Entity("GameAuthAPI.Models.PlayerTrade", b =>
                 {
                     b.HasOne("GameAuthAPI.Models.Player", "Player1")
@@ -587,6 +746,8 @@ namespace GameAuthAPI.Migrations
 
                     b.Navigation("PlayerItems");
 
+                    b.Navigation("PlayerSkills");
+
                     b.Navigation("Quests");
                 });
 
@@ -600,6 +761,11 @@ namespace GameAuthAPI.Migrations
             modelBuilder.Entity("GameAuthAPI.Models.Quest", b =>
                 {
                     b.Navigation("QuestParticipants");
+                });
+
+            modelBuilder.Entity("GameAuthAPI.Models.Skill", b =>
+                {
+                    b.Navigation("PlayerSkills");
                 });
 #pragma warning restore 612, 618
         }

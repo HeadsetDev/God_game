@@ -5,15 +5,12 @@
 namespace GameAuthAPI.Migrations
 {
     /// <inheritdoc />
-    public partial class AddInitialData : Migration
+    public partial class InitialCreat : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.InsertData(
-                    table: "Locations",
-                    columns: new[] { "Name", "Description" },
-                    values: new object[] { "Starting Location", "The starting point for all players." });
+
         }
 
         /// <inheritdoc />

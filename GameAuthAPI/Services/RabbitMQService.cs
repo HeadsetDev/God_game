@@ -16,10 +16,7 @@ namespace GameAuthAPI.Services
             _connection = factory.CreateConnection();
             _channel = _connection.CreateModel();
 
-            // Очередь для уведомлений
             _channel.QueueDeclare(queue: "notifications", durable: false, exclusive: false, autoDelete: false, arguments: null);
-
-            // Очередь для аукциона
             _channel.QueueDeclare(queue: "auction", durable: false, exclusive: false, autoDelete: false, arguments: null);
         }
 
@@ -41,14 +38,12 @@ namespace GameAuthAPI.Services
             return Encoding.UTF8.GetString(body);
         }
 
-        // Метод для отправки лота на аукцион
         public void PublishAuctionLot(AuctionLot lot)
         {
             var message = JsonSerializer.Serialize(lot);
             SendMessage("auction", message);
         }
 
-        // Метод для получения лота с аукциона
         public AuctionLot? ReceiveAuctionLot()
         {
             var message = ReceiveMessage("auction");

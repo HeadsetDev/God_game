@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using GameAuthAPI.Data;
 using GameAuthAPI.DTOs;
 using GameAuthAPI.Models;
+using GameAuthAPI.Services;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,9 +19,9 @@ namespace GameAuthAPI.Controllers
     {
         private readonly GameDbContext _context;
         private readonly IMapper _mapper;
-        private readonly IMemoryCache _cache;
+        private readonly RedisCacheService _cache;
 
-        public ItemsController(GameDbContext context, IMapper mapper, IMemoryCache cache)
+        public ItemsController(GameDbContext context, IMapper mapper, RedisCacheService cache)
         {
             _context = context;
             _mapper = mapper;
@@ -30,13 +31,17 @@ namespace GameAuthAPI.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ItemDto>>> GetItems()
         {
-            if (!_cache.TryGetValue("Items", out IEnumerable<ItemDto>? items))
+            const string cacheKey = "items_all";
+
+            var items = await _cache.GetAsync<List<ItemDto>>(cacheKey);
+
+            if (items == null)
             {
                 items = await _context.Items
                     .Select(i => _mapper.Map<ItemDto>(i))
                     .ToListAsync();
 
-                _cache.Set("Items", items ?? new List<ItemDto>(), TimeSpan.FromMinutes(10));
+                await _cache.SetAsync(cacheKey, items, TimeSpan.FromMinutes(10));
             }
 
             return Ok(items ?? new List<ItemDto>());
@@ -47,13 +52,22 @@ namespace GameAuthAPI.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<ItemDto>> GetItem(int id)
         {
-            var item = await _context.Items.FindAsync(id);
+            var cacheKey = $"item_{id}";
+            var item = await _cache.GetAsync<ItemDto>(cacheKey);
+
             if (item == null)
             {
-                return NotFound();
+                var dbItem = await _context.Items.FindAsync(id);
+                if (dbItem == null)
+                {
+                    return NotFound();
+                }
+
+                item = _mapper.Map<ItemDto>(dbItem);
+                await _cache.SetAsync(cacheKey, item, TimeSpan.FromMinutes(10));
             }
 
-            return Ok(_mapper.Map<ItemDto>(item));
+            return Ok(item);
         }
 
         [HttpPost]
@@ -73,6 +87,9 @@ namespace GameAuthAPI.Controllers
             var item = _mapper.Map<Item>(createItemDto);
             _context.Items.Add(item);
             await _context.SaveChangesAsync();
+
+            // Инвалидируем кэш всех предметов
+            await _cache.RemoveAsync("items_all");
 
             var itemDto = _mapper.Map<ItemDto>(item);
             return CreatedAtAction(nameof(GetItem), new { id = itemDto.Id }, itemDto);
@@ -103,6 +120,10 @@ namespace GameAuthAPI.Controllers
             try
             {
                 await _context.SaveChangesAsync();
+
+                // Инвалидируем кэш
+                await _cache.RemoveAsync($"item_{id}");
+                await _cache.RemoveAsync("items_all");
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -115,6 +136,26 @@ namespace GameAuthAPI.Controllers
                     throw;
                 }
             }
+
+            return NoContent();
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize(Policy = "AdminOnly")]
+        public async Task<IActionResult> DeleteItem(int id)
+        {
+            var item = await _context.Items.FindAsync(id);
+            if (item == null)
+            {
+                return NotFound();
+            }
+
+            _context.Items.Remove(item);
+            await _context.SaveChangesAsync();
+
+            // Инвалидируем кэш
+            await _cache.RemoveAsync($"item_{id}");
+            await _cache.RemoveAsync("items_all");
 
             return NoContent();
         }

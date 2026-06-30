@@ -1,4 +1,5 @@
-using System.ComponentModel.DataAnnotations;
+п»їusing System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using GameAuthAPI.Services;
 using Microsoft.Extensions.Logging;
 using System.Linq;
@@ -11,12 +12,12 @@ namespace GameAuthAPI.Models
     {
         public int Id { get; set; }
 
-        [Required(ErrorMessage = "Имя пользователя обязательно.")]
-        [MinLength(3, ErrorMessage = "Имя пользователя должно содержать не менее 3 символов.")]
-        [RegularExpression(@"^[a-zA-Z]+$", ErrorMessage = "Имя должно состоять только из букв.")]
+        [Required(ErrorMessage = "РРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ.")]
+        [MinLength(3, ErrorMessage = "РРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґРѕР»Р¶РЅРѕ СЃРѕРґРµСЂР¶Р°С‚СЊ РЅРµ РјРµРЅРµРµ 3 СЃРёРјРІРѕР»РѕРІ.")]
+        [RegularExpression(@"^[a-zA-Z]+$", ErrorMessage = "РРјСЏ РґРѕР»Р¶РЅРѕ СЃРѕСЃС‚РѕСЏС‚СЊ С‚РѕР»СЊРєРѕ РёР· Р±СѓРєРІ.")]
         public string Name { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Хэш пароля обязателен.")]
+        [Required(ErrorMessage = "РҐСЌС€ РїР°СЂРѕР»СЏ РѕР±СЏР·Р°С‚РµР»РµРЅ.")]
         public string PasswordHash { get; set; } = string.Empty;
 
         public string Role { get; set; } = "Player";
@@ -24,21 +25,80 @@ namespace GameAuthAPI.Models
         public int Coins { get; set; }
         public int Crystals { get; set; }
 
-        // Внешний ключ для текущей локации
         public int CurrentLocationId { get; set; }
-
-        // Навигационное свойство для текущей локации
         public Location CurrentLocation { get; set; } = null!;
 
         public List<PlayerItem> PlayerItems { get; set; } = new();
         public List<Quest> Quests { get; set; } = new();
         public int PlayerKills { get; set; }
 
-        // Словарь для хранения ресурсов игрока
+        // ========== РЁРР¤Р РћР’РђРќРќР«Р• РџРћР›РЇ ==========
+        public string? EmailEncrypted { get; set; }
+        public string? PhoneEncrypted { get; set; }
+        public string? AddressEncrypted { get; set; }
+
+        [NotMapped]
+        public string? Email
+        {
+            get => DecryptField(EmailEncrypted);
+            set => EmailEncrypted = EncryptField(value);
+        }
+
+        [NotMapped]
+        public string? Phone
+        {
+            get => DecryptField(PhoneEncrypted);
+            set => PhoneEncrypted = EncryptField(value);
+        }
+
+        [NotMapped]
+        public string? Address
+        {
+            get => DecryptField(AddressEncrypted);
+            set => AddressEncrypted = EncryptField(value);
+        }
+
+        [NotMapped]
         public Dictionary<string, int> Resources { get; set; } = new();
 
-        // Навигационное свойство для гильдий
         public List<PlayerGuild> PlayerGuilds { get; set; } = new List<PlayerGuild>();
+        public List<PlayerSkill> PlayerSkills { get; set; } = new();
+
+        // PvP СЃС‚Р°С‚РёСЃС‚РёРєР°
+        public int PvP_Wins { get; set; } = 0;
+        public int PvP_Losses { get; set; } = 0;
+        public int PvP_Kills { get; set; } = 0;
+        public int PvP_Deaths { get; set; } = 0;
+
+        private static EncryptionService? _encryptionService;
+
+        private EncryptionService GetEncryptionService()
+        {
+            if (_encryptionService == null)
+            {
+                var config = new ConfigurationBuilder()
+                    .AddJsonFile("appsettings.json")
+                    .Build();
+                _encryptionService = new EncryptionService(config);
+            }
+            return _encryptionService;
+        }
+
+        private string? EncryptField(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return null;
+
+            return GetEncryptionService().Encrypt(value);
+        }
+
+        private string? DecryptField(string? encrypted)
+        {
+            if (string.IsNullOrEmpty(encrypted))
+                return null;
+
+            return GetEncryptionService().TryDecrypt(encrypted, out var result) ? result : null;
+        }
 
         private readonly PasswordService _passwordService;
         private readonly ILogger<Player> _logger;
@@ -47,12 +107,11 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrWhiteSpace(name))
             {
-                throw new ArgumentException("Имя пользователя не может быть пустым.", nameof(name));
+                throw new ArgumentException("РРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.", nameof(name));
             }
-
             if (string.IsNullOrWhiteSpace(password))
             {
-                throw new ArgumentException("Пароль не может быть пустым.", nameof(password));
+                throw new ArgumentException("РџР°СЂРѕР»СЊ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.", nameof(password));
             }
 
             _passwordService = passwordService ?? throw new ArgumentNullException(nameof(passwordService));
@@ -60,15 +119,14 @@ namespace GameAuthAPI.Models
 
             if (!ValidateName(name))
             {
-                _logger.LogError("Некорректное имя пользователя: {Name}", name);
-                throw new ArgumentException("Имя должно содержать хотя бы 2 символа и состоять только из букв.", nameof(name));
+                _logger.LogError("РќРµРєРѕСЂСЂРµРєС‚РЅРѕРµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ: {Name}", name);
+                throw new ArgumentException("РРјСЏ РґРѕР»Р¶РЅРѕ СЃРѕРґРµСЂР¶Р°С‚СЊ С…РѕС‚СЏ Р±С‹ 2 СЃРёРјРІРѕР»Р° Рё СЃРѕСЃС‚РѕСЏС‚СЊ С‚РѕР»СЊРєРѕ РёР· Р±СѓРєРІ.", nameof(name));
             }
 
             Name = name;
             PasswordHash = _passwordService.HashPassword(password);
         }
 
-        // Конструктор для Entity Framework
         public Player()
         {
             _passwordService = new PasswordService();
@@ -84,10 +142,9 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrEmpty(password))
             {
-                _logger.LogWarning("Попытка проверки пустого пароля для пользователя: {Name}", Name);
+                _logger.LogWarning("РџРѕРїС‹С‚РєР° РїСЂРѕРІРµСЂРєРё РїСѓСЃС‚РѕРіРѕ РїР°СЂРѕР»СЏ РґР»СЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ: {Name}", Name);
                 return false;
             }
-
             return _passwordService.CheckPassword(PasswordHash, password);
         }
 
@@ -123,7 +180,6 @@ namespace GameAuthAPI.Models
                 if (!quest.IsCompleted)
                 {
                     bool isCompleted = true;
-
                     foreach (var condition in quest.Conditions)
                     {
                         if (condition.Key == "MonstersKilled" && PlayerKills < condition.Value)
@@ -132,7 +188,6 @@ namespace GameAuthAPI.Models
                             break;
                         }
                     }
-
                     if (isCompleted)
                     {
                         quest.IsCompleted = true;

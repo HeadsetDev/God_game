@@ -2,16 +2,13 @@ using Microsoft.AspNetCore.Mvc;
 using GameAuthAPI.Data;
 using GameAuthAPI.Models;
 using GameAuthAPI.DTOs;
-using Microsoft.EntityFrameworkCore;
-using System.Threading.Tasks;
 using GameAuthAPI.Services;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace GameAuthAPI.Controllers
 {
@@ -24,31 +21,42 @@ namespace GameAuthAPI.Controllers
         private readonly IConfiguration _config;
         private readonly ILogger<AuthController> _logger;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly IMemoryCache _cache;
+        private readonly SecurityLogger _securityLogger;
+        private readonly EncryptionService _encryptionService;
 
         public AuthController(
             GameDbContext context,
             PasswordService passwordService,
             IConfiguration config,
             ILogger<AuthController> logger,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IMemoryCache cache,
+            SecurityLogger securityLogger,
+            EncryptionService encryptionService)
         {
             _context = context;
             _passwordService = passwordService;
             _config = config;
             _logger = logger;
             _loggerFactory = loggerFactory;
+            _cache = cache;
+            _securityLogger = securityLogger;
+            _encryptionService = encryptionService;
         }
 
         [HttpPost("register")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
         {
             if (registerUserDto == null)
             {
-                _logger.LogWarning("Данные для регистрации не предоставлены.");
                 return BadRequest("Данные для регистрации не предоставлены.");
+            }
+
+            // Проверяем сложность пароля
+            if (!IsPasswordStrong(registerUserDto.Password))
+            {
+                return BadRequest("Пароль должен содержать минимум 8 символов, буквы и цифры.");
             }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -57,8 +65,20 @@ namespace GameAuthAPI.Controllers
             {
                 if (await _context.Players.AnyAsync(u => u.Name == registerUserDto.Username))
                 {
-                    _logger.LogWarning("Попытка регистрации уже существующего пользователя: {Username}", registerUserDto.Username);
+                    _securityLogger.LogSuspiciousActivity(
+                        "Попытка регистрации с существующим именем",
+                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                        registerUserDto.Username
+                    );
                     return BadRequest("Пользователь уже существует.");
+                }
+
+                var defaultLocation = await _context.Locations.FirstOrDefaultAsync();
+                if (defaultLocation == null)
+                {
+                    defaultLocation = new Location { Name = "Стартовая локация", Description = "Место, где появляются новые игроки." };
+                    _context.Locations.Add(defaultLocation);
+                    await _context.SaveChangesAsync();
                 }
 
                 var playerLogger = _loggerFactory.CreateLogger<Player>();
@@ -69,34 +89,51 @@ namespace GameAuthAPI.Controllers
                     playerLogger
                 )
                 {
-                    Role = registerUserDto.Role
+                    Role = registerUserDto.Role,
+                    CurrentLocationId = defaultLocation.Id
                 };
 
                 _context.Players.Add(newPlayer);
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                _logger.LogInformation("Пользователь успешно зарегистрирован: {Username}", registerUserDto.Username);
+                _securityLogger.LogSecurityEvent(
+                    "USER_REGISTERED",
+                    $"Новый пользователь {registerUserDto.Username} зарегистрирован",
+                    HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    registerUserDto.Username
+                );
+
                 return Ok("Пользователь зарегистрирован.");
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                _logger.LogError(ex, "Ошибка при регистрации пользователя: {Username}", registerUserDto.Username);
+                _logger.LogError(ex, "Ошибка при регистрации");
                 return StatusCode(500, "Произошла ошибка при регистрации.");
             }
         }
 
         [HttpPost("login")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> Login([FromBody] LoginUserDto loginUserDto)
         {
             if (loginUserDto == null)
             {
-                _logger.LogWarning("Данные для входа не предоставлены.");
                 return BadRequest("Данные для входа не предоставлены.");
+            }
+
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var key = $"failed_login_{ip}_{loginUserDto.Username}";
+
+            var attempts = _cache.Get<int>(key);
+            if (attempts >= 5)
+            {
+                _securityLogger.LogSuspiciousActivity(
+                    "Блокировка IP после 5 неудачных попыток входа",
+                    ip,
+                    loginUserDto.Username
+                );
+                return StatusCode(403, "Слишком много попыток входа. Попробуйте позже.");
             }
 
             try
@@ -104,17 +141,30 @@ namespace GameAuthAPI.Controllers
                 var player = await _context.Players.FirstOrDefaultAsync(u => u.Name == loginUserDto.Username);
                 if (player == null || !player.CheckPassword(loginUserDto.Password))
                 {
-                    _logger.LogWarning("Неудачная попытка входа для пользователя: {Username}", loginUserDto.Username);
+                    _cache.Set(key, attempts + 1, TimeSpan.FromMinutes(15));
+                    _securityLogger.LogSuspiciousActivity(
+                        "Неудачная попытка входа",
+                        ip,
+                        loginUserDto.Username
+                    );
                     return Unauthorized("Неверные данные.");
                 }
 
+                _cache.Remove(key);
                 var token = GenerateJwtToken(player.Name, player.Role);
-                _logger.LogInformation("Пользователь успешно вошел: {Username}", loginUserDto.Username);
+
+                _securityLogger.LogSecurityEvent(
+                    "USER_LOGIN",
+                    $"Пользователь {player.Name} успешно вошел",
+                    ip,
+                    player.Name
+                );
+
                 return Ok(new { token });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при входе пользователя: {Username}", loginUserDto.Username);
+                _logger.LogError(ex, "Ошибка при входе");
                 return StatusCode(500, "Произошла ошибка при входе.");
             }
         }
@@ -122,9 +172,8 @@ namespace GameAuthAPI.Controllers
         private string GenerateJwtToken(string username, string role)
         {
             var jwtSettings = _config.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден в конфигурации.");
+            var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден.");
 
-            // Получаем идентификатор пользователя из базы данных
             var player = _context.Players.FirstOrDefault(p => p.Name == username);
             if (player == null)
             {
@@ -133,9 +182,10 @@ namespace GameAuthAPI.Controllers
 
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.NameIdentifier, player.Id.ToString()), // Используем Id пользователя
+                new Claim(ClaimTypes.NameIdentifier, player.Id.ToString()),
                 new Claim(ClaimTypes.Name, username),
-                new Claim(ClaimTypes.Role, role)
+                new Claim(ClaimTypes.Role, role),
+                new Claim("SessionId", Guid.NewGuid().ToString())
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
@@ -145,11 +195,19 @@ namespace GameAuthAPI.Controllers
                 issuer: jwtSettings["Issuer"],
                 audience: jwtSettings["Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(1),
+                expires: DateTime.UtcNow.AddMinutes(15),
                 signingCredentials: creds
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        private bool IsPasswordStrong(string password)
+        {
+            return password.Length >= 8 &&
+                   password.Any(char.IsUpper) &&
+                   password.Any(char.IsLower) &&
+                   password.Any(char.IsDigit);
         }
     }
 }

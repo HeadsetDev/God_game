@@ -1,63 +1,53 @@
 using Microsoft.EntityFrameworkCore;
 using GameAuthAPI.Data;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using GameAuthAPI.Services;
+using GameAuthAPI.Hubs;
+using GameAuthAPI.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using GameAuthAPI.Services;
-using Microsoft.Extensions.Logging;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
-using GameAuthAPI.Hubs;
-using Microsoft.AspNetCore.Http;
+using Serilog;
+using HealthChecks.SqlServer;
+using HealthChecks.Redis;
+using HealthChecks.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем SignalR
+// ========== LOGGING ==========
+builder.Host.UseSerilog((context, config) =>
+{
+    config.ReadFrom.Configuration(context.Configuration);
+});
+
+// ========== SERVICES ==========
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSignalR();
-
-// Добавляем кэш в память (IMemoryCache)
 builder.Services.AddMemoryCache();
+builder.Services.AddScoped<RedisCacheService>();
+builder.Services.AddScoped<EncryptionService>();
+builder.Services.AddScoped<SecurityLogger>();
 
-// Регистрация RabbitMQService
-builder.Services.AddSingleton<RabbitMQService>();
+// ========== DATABASE ==========
+builder.Services.AddDbContext<GameDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("Game"))
+);
 
-// Настройка Redis
+// ========== REDIS ==========
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
     options.InstanceName = "GameServerAPI";
 });
 
-// Добавляем AutoMapper
-builder.Services.AddAutoMapper(typeof(Program));
+// ========== RABBITMQ ==========
+builder.Services.AddSingleton<RabbitMQService>();
 
-// Проверка подключения к базе данных
-try
-{
-    var optionsBuilder = new DbContextOptionsBuilder<GameDbContext>();
-    optionsBuilder.UseSqlServer(builder.Configuration.GetConnectionString("Game"));
-
-    using var context = new GameDbContext(optionsBuilder.Options);
-    context.Database.OpenConnection();
-    Console.WriteLine("Подключение к базе данных успешно!");
-    context.Database.CloseConnection();
-}
-catch (Exception ex)
-{
-    Console.WriteLine("Ошибка подключения к базе данных: " + ex.Message);
-}
-
-// Регистрация сервисов
-builder.Services.AddScoped<PasswordService>();
-builder.Services.AddLogging();
-
-// Настройка JWT
+// ========== JWT ==========
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден в конфигурации.");
+var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден.");
 
 builder.Services.AddAuthentication(options =>
 {
@@ -78,51 +68,37 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Настройка авторизации
+// ========== AUTHORIZATION ==========
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy =>
-    policy.RequireClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin"));
-    //options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("PlayerOnly", policy => policy.RequireRole("Player"));
+        policy.RequireClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "Admin"));
 });
 
-// Настройка базы данных
-builder.Services.AddDbContext<GameDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("Game"))
-);
-
-// Настройка CORS (исправлено)
+// ========== CORS ==========
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigins", policy =>
+    options.AddPolicy("StrictCors", policy =>
     {
-        policy.WithOrigins("https://example.com", "http://localhost:3000") // Укажите ваши домены
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials(); // Разрешаем передачу учетных данных
+        policy.WithOrigins("https://yourdomain.com")
+              .WithMethods("GET", "POST", "PUT", "DELETE")
+              .WithHeaders("Authorization", "Content-Type")
+              .AllowCredentials()
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });
 
-// Регистрация контроллеров
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-
-// Регистрация HttpContextAccessor (если используется)
-builder.Services.AddHttpContextAccessor();
-
-// Настройка Swagger
+// ========== SWAGGER ==========
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "GameAuthAPI", Version = "v1" });
-
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     c.IncludeXmlComments(xmlPath);
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Description = "JWT Authorization header using the Bearer scheme.",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
@@ -145,26 +121,77 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// ========== HEALTH CHECKS ==========
+builder.Services.AddHealthChecks()
+    .AddSqlServer(
+        connectionString: builder.Configuration.GetConnectionString("Game")!,
+        name: "SQL Server",
+        failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy
+    )
+    .AddRedis(
+        redisConnectionString: builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379",
+        name: "Redis"
+    )
+    .AddRabbitMQ(
+        rabbitConnectionString: "amqp://guest:guest@localhost:5672",
+        name: "RabbitMQ"
+    );
+
+// ========== AUTOMAPPER ==========
+builder.Services.AddAutoMapper(typeof(Program));
+
 var app = builder.Build();
 
-// Middleware
+// ========== MIDDLEWARE ==========
 app.UseRouting();
 app.UseHttpsRedirection();
-app.UseCors("AllowSpecificOrigins"); // Используем исправленную политику CORS
+app.UseCors("StrictCors");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Подключение SignalR
+app.UseMiddleware<DDoSProtectionMiddleware>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
+app.UseSerilogRequestLogging();
+
+// ========== SIGNALR ==========
 app.MapHub<ChatHub>("/chatHub");
 app.MapHub<BattleHub>("/battleHub");
-// Включаем Swagger в режиме разработки
+
+// ========== HEALTH CHECKS ==========
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var result = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                duration = e.Value.Duration.ToString()
+            })
+        });
+        await context.Response.WriteAsync(result);
+    }
+});
+
+// ========== SEED DATA ==========
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+    await SeedData.InitializeAsync(dbContext);
+}
+
+// ========== SWAGGER ==========
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "GameAuthAPI v1"));
+    app.UseSwaggerUI();
 }
 
-// Маршрутизация контроллеров
 app.MapControllers();
-
 app.Run();
