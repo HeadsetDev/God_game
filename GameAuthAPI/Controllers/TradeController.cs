@@ -1,39 +1,53 @@
+using Microsoft.AspNetCore.Mvc;
+using GameAuthAPI.Data;
+using GameAuthAPI.DTOs;
+using GameAuthAPI.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
+using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
+
 namespace GameAuthAPI.Controllers
 {
-    using Microsoft.AspNetCore.Mvc;
-    using GameAuthAPI.Data;
-    using GameAuthAPI.Models;
-    using System.Threading.Tasks;
-    using System.Linq;
-    using Microsoft.EntityFrameworkCore;
-
     [Route("api/[controller]")]
     [ApiController]
-    public class PlayerTradeController : ControllerBase
+    public class TradeController : ControllerBase
     {
         private readonly GameDbContext _context;
+        private readonly IMapper _mapper;
 
-        public PlayerTradeController(GameDbContext context)
+        public TradeController(GameDbContext context, IMapper mapper)
         {
             _context = context;
+            _mapper = mapper;
         }
 
-        // Инициировать сделку
-        [HttpPost("start-trade")]
-        public async Task<IActionResult> StartTrade(int player1Id, int player2Id)
+        [HttpPost("initiate")]
+        [Authorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> InitiateTrade([FromBody] TradeRequestDto tradeRequest)
         {
-            var player1 = await _context.Players.FindAsync(player1Id);
-            var player2 = await _context.Players.FindAsync(player2Id);
+            if (tradeRequest == null)
+            {
+                return BadRequest("Данные для инициирования сделки не предоставлены.");
+            }
+
+            var player1 = await _context.Players.FindAsync(tradeRequest.Player1Id);
+            var player2 = await _context.Players.FindAsync(tradeRequest.Player2Id);
 
             if (player1 == null || player2 == null)
             {
-                return NotFound("Игроки не найдены.");
+                return NotFound("Один из игроков не найден.");
             }
 
             var trade = new PlayerTrade
             {
-                Player1Id = player1Id,
-                Player2Id = player2Id,
+                Player1Id = tradeRequest.Player1Id,
+                Player2Id = tradeRequest.Player2Id,
                 IsConfirmedByPlayer1 = false,
                 IsConfirmedByPlayer2 = false,
                 IsCompleted = false
@@ -42,98 +56,55 @@ namespace GameAuthAPI.Controllers
             _context.PlayerTrades.Add(trade);
             await _context.SaveChangesAsync();
 
-            return Ok(trade);
+            return Ok(_mapper.Map<PlayerTradeDto>(trade));
         }
 
-        // Выбрать предметы для обмена
-        [HttpPost("add-items-to-trade")]
-        public async Task<IActionResult> AddItemsToTrade(int tradeId, int playerId, List<int> itemIds)
-        {
-            var trade = await _context.PlayerTrades.Include(t => t.Player1Items).Include(t => t.Player2Items)
-                                                     .FirstOrDefaultAsync(t => t.Id == tradeId);
-
-            if (trade == null)
-            {
-                return NotFound("Сделка не найдена.");
-            }
-
-            var player = await _context.Players.Include(p => p.PlayerItems)
-                                                .FirstOrDefaultAsync(p => p.Id == playerId);
-
-            if (player == null)
-            {
-                return NotFound("Игрок не найден.");
-            }
-
-            var itemsToAdd = player.PlayerItems.Where(pi => itemIds.Contains(pi.ItemId)).ToList();
-
-            if (playerId == trade.Player1Id)
-            {
-                trade.Player1Items.AddRange(itemsToAdd);
-            }
-            else if (playerId == trade.Player2Id)
-            {
-                trade.Player2Items.AddRange(itemsToAdd);
-            }
-            else
-            {
-                return BadRequest("Игрок не является частью этой сделки.");
-            }
-
-            // Обновляем сделку
-            await _context.SaveChangesAsync();
-            return Ok(trade);
-        }
-
-        // Подтвердить сделку
-        [HttpPost("confirm-trade")]
-        public async Task<IActionResult> ConfirmTrade(int tradeId, int playerId)
+        [HttpPost("confirm")]
+        [Authorize]
+        public async Task<IActionResult> ConfirmTrade([FromBody] ConfirmTradeDto confirmTrade)
         {
             var trade = await _context.PlayerTrades
-                                       .Include(t => t.Player1Items)
-                                       .Include(t => t.Player2Items)
-                                       .FirstOrDefaultAsync(t => t.Id == tradeId);
+                .Include(t => t.Player1Items)
+                .Include(t => t.Player2Items)
+                .FirstOrDefaultAsync(t => t.Id == confirmTrade.TradeId);
 
             if (trade == null)
             {
                 return NotFound("Сделка не найдена.");
             }
 
-            if (playerId == trade.Player1Id)
+            if (confirmTrade.PlayerId == trade.Player1Id)
             {
                 trade.IsConfirmedByPlayer1 = true;
             }
-            else if (playerId == trade.Player2Id)
+            else if (confirmTrade.PlayerId == trade.Player2Id)
             {
                 trade.IsConfirmedByPlayer2 = true;
             }
             else
             {
-                return BadRequest("Игрок не является частью этой сделки.");
+                return BadRequest("Игрок не является участником сделки.");
             }
 
-            // Проверяем, завершена ли сделка
             if (trade.IsConfirmedByPlayer1 && trade.IsConfirmedByPlayer2)
             {
-                // Передаем предметы без каскадного удаления
                 foreach (var item in trade.Player1Items)
                 {
-                    item.PlayerId = trade.Player2Id; // Передаем предмет игроку 2
-                    _context.PlayerItems.Update(item); // Явно обновляем объект в контексте
+                    item.PlayerId = trade.Player2Id;
+                    _context.PlayerItems.Update(item);
                 }
 
                 foreach (var item in trade.Player2Items)
                 {
-                    item.PlayerId = trade.Player1Id; // Передаем предмет игроку 1
-                    _context.PlayerItems.Update(item); // Явно обновляем объект в контексте
+                    item.PlayerId = trade.Player1Id;
+                    _context.PlayerItems.Update(item);
                 }
 
                 trade.IsCompleted = true;
             }
 
             await _context.SaveChangesAsync();
-            return Ok(trade);
+            return Ok(_mapper.Map<PlayerTradeDto>(trade));
         }
-
     }
 }

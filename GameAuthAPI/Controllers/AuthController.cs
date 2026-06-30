@@ -1,13 +1,17 @@
 using Microsoft.AspNetCore.Mvc;
+using GameAuthAPI.Data;
+using GameAuthAPI.Models;
+using GameAuthAPI.DTOs;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
+using GameAuthAPI.Services;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using System.Security.Claims;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
-using GameAuthAPI.Models;
-using Microsoft.Extensions.Configuration;
-using GameAuthAPI.Data;
-using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace GameAuthAPI.Controllers
 {
@@ -15,50 +19,126 @@ namespace GameAuthAPI.Controllers
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly IConfiguration _config;
         private readonly GameDbContext _context;
+        private readonly PasswordService _passwordService;
+        private readonly IConfiguration _config;
+        private readonly ILogger<AuthController> _logger;
+        private readonly ILoggerFactory _loggerFactory;
 
-        public AuthController(IConfiguration config, GameDbContext context)
+        public AuthController(
+            GameDbContext context,
+            PasswordService passwordService,
+            IConfiguration config,
+            ILogger<AuthController> logger,
+            ILoggerFactory loggerFactory)
         {
-            _config = config;
             _context = context;
+            _passwordService = passwordService;
+            _config = config;
+            _logger = logger;
+            _loggerFactory = loggerFactory;
         }
 
         [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterUser user)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
         {
-            if (await _context.Players.AnyAsync(u => u.Name == user.Username))
-                return BadRequest("Пользователь уже существует.");
+            if (registerUserDto == null)
+            {
+                _logger.LogWarning("Данные для регистрации не предоставлены.");
+                return BadRequest("Данные для регистрации не предоставлены.");
+            }
 
-            var newUser = new Player(user.Username, user.Password);
-            _context.Players.Add(newUser);
-            await _context.SaveChangesAsync();
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            return Ok("Пользователь зарегистрирован.");
+            try
+            {
+                if (await _context.Players.AnyAsync(u => u.Name == registerUserDto.Username))
+                {
+                    _logger.LogWarning("Попытка регистрации уже существующего пользователя: {Username}", registerUserDto.Username);
+                    return BadRequest("Пользователь уже существует.");
+                }
+
+                var playerLogger = _loggerFactory.CreateLogger<Player>();
+                var newPlayer = new Player(
+                    registerUserDto.Username,
+                    registerUserDto.Password,
+                    _passwordService,
+                    playerLogger
+                )
+                {
+                    Role = registerUserDto.Role
+                };
+
+                _context.Players.Add(newPlayer);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                _logger.LogInformation("Пользователь успешно зарегистрирован: {Username}", registerUserDto.Username);
+                return Ok("Пользователь зарегистрирован.");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Ошибка при регистрации пользователя: {Username}", registerUserDto.Username);
+                return StatusCode(500, "Произошла ошибка при регистрации.");
+            }
         }
 
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] RegisterUser user)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> Login([FromBody] LoginUserDto loginUserDto)
         {
-            var player = await _context.Players.FirstOrDefaultAsync(u => u.Name == user.Username);
-            if (player == null || !player.CheckPassword(user.Password))
-                return Unauthorized("Неверные данные.");
+            if (loginUserDto == null)
+            {
+                _logger.LogWarning("Данные для входа не предоставлены.");
+                return BadRequest("Данные для входа не предоставлены.");
+            }
 
-            var token = GenerateJwtToken(player.Name);
-            return Ok(new { token });
+            try
+            {
+                var player = await _context.Players.FirstOrDefaultAsync(u => u.Name == loginUserDto.Username);
+                if (player == null || !player.CheckPassword(loginUserDto.Password))
+                {
+                    _logger.LogWarning("Неудачная попытка входа для пользователя: {Username}", loginUserDto.Username);
+                    return Unauthorized("Неверные данные.");
+                }
+
+                var token = GenerateJwtToken(player.Name, player.Role);
+                _logger.LogInformation("Пользователь успешно вошел: {Username}", loginUserDto.Username);
+                return Ok(new { token });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при входе пользователя: {Username}", loginUserDto.Username);
+                return StatusCode(500, "Произошла ошибка при входе.");
+            }
         }
 
-        private string GenerateJwtToken(string username)
+        private string GenerateJwtToken(string username, string role)
         {
             var jwtSettings = _config.GetSection("JwtSettings");
+            var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден в конфигурации.");
+
+            // Получаем идентификатор пользователя из базы данных
+            var player = _context.Players.FirstOrDefault(p => p.Name == username);
+            if (player == null)
+            {
+                throw new InvalidOperationException("Пользователь не найден.");
+            }
 
             var claims = new List<Claim>
             {
+                new Claim(ClaimTypes.NameIdentifier, player.Id.ToString()), // Используем Id пользователя
                 new Claim(ClaimTypes.Name, username),
-                new Claim(ClaimTypes.Role, "Player")
+                new Claim(ClaimTypes.Role, role)
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
