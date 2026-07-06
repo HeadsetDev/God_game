@@ -29,6 +29,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<RedisCacheService>();
 builder.Services.AddScoped<EncryptionService>();
 builder.Services.AddScoped<SecurityLogger>();
+builder.Services.AddScoped<StaticDataService>();
 
 // ========== DATABASE ==========
 builder.Services.AddDbContext<GameDbContext>(options =>

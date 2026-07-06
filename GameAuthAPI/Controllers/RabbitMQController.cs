@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using GameAuthAPI.Services;
+using GameAuthAPI.DTOs;
+using Microsoft.AspNetCore.Authorization;
 
 namespace GameAuthAPI.Controllers
 {
@@ -15,22 +17,27 @@ namespace GameAuthAPI.Controllers
         }
 
         [HttpPost("send")]
+        [Authorize(Policy = "AdminOnly")]
         public IActionResult SendMessage([FromBody] string message)
         {
             if (string.IsNullOrEmpty(message))
-            {
-                return BadRequest("Сообщение не может быть пустым.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Сообщение не может быть пустым."));
 
             _rabbitMQService.SendMessage("notifications", message);
-            return Ok("Сообщение отправлено: " + message);
+
+            return Ok(ApiResponse<object>.Ok(null, "Сообщение отправлено в очередь."));
         }
 
         [HttpGet("receive")]
+        [Authorize(Policy = "AdminOnly")]
         public IActionResult ReceiveMessage()
         {
-            var message = _rabbitMQService.ReceiveMessage("notifications"); // Укажите имя очереди
-            return Ok("Получено сообщение: " + message);
+            var message = _rabbitMQService.ReceiveMessage("notifications");
+
+            if (message == "Нет сообщений в очереди.")
+                return Ok(ApiResponse<object>.Ok(null, "Нет сообщений."));
+
+            return Ok(ApiResponse<object>.Ok(new { message }, "Сообщение получено."));
         }
     }
 }

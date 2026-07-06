@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "name": "Гоблин",
+    "baseHealth": 100,
+    "baseDamage": 15,
+    "defense": 5,
+    "experienceReward": 20,
+    "level": 1,
+    "drops": [
+      {
+        "itemId": 1,
+        "chance": 0.2,
+        "minQuantity": 1,
+        "maxQuantity": 1
+      }
+    ],
+    "spawnLocations": [ 1, 2 ] // id локаций, где может спавниться
+  }
+]

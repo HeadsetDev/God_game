@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using GameAuthAPI.Data;
 using GameAuthAPI.Models;
+using GameAuthAPI.DTOs;
 using GameAuthAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 
@@ -20,6 +21,8 @@ namespace GameAuthAPI.Controllers
             _cache = cache;
         }
 
+        // ===================== ПОЛУЧЕНИЕ ВСЕХ НАВЫКОВ =====================
+
         [HttpGet]
         public async Task<IActionResult> GetAllSkills()
         {
@@ -32,8 +35,10 @@ namespace GameAuthAPI.Controllers
                 await _cache.SetAsync(cacheKey, skills, TimeSpan.FromMinutes(30));
             }
 
-            return Ok(skills);
+            return Ok(ApiResponse<List<Skill>>.Ok(skills ?? new List<Skill>()));
         }
+
+        // ===================== ПОЛУЧЕНИЕ НАВЫКА ПО ID =====================
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetSkill(int id)
@@ -45,15 +50,15 @@ namespace GameAuthAPI.Controllers
             {
                 skill = await _context.Skills.FindAsync(id);
                 if (skill == null)
-                {
-                    return NotFound("Навык не найден.");
-                }
+                    return NotFound(ApiResponse<object>.Fail("Навык не найден."));
 
                 await _cache.SetAsync(cacheKey, skill, TimeSpan.FromMinutes(30));
             }
 
-            return Ok(skill);
+            return Ok(ApiResponse<Skill>.Ok(skill));
         }
+
+        // ===================== ПОЛУЧЕНИЕ НАВЫКОВ ИГРОКА =====================
 
         [HttpGet("player/{playerId}")]
         [Authorize]
@@ -70,45 +75,40 @@ namespace GameAuthAPI.Controllers
                     .FirstOrDefaultAsync(p => p.Id == playerId);
 
                 if (player == null)
-                {
-                    return NotFound("Игрок не найден.");
-                }
+                    return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
 
                 skills = player.PlayerSkills.Select(ps => ps.Skill).ToList();
                 await _cache.SetAsync(cacheKey, skills, TimeSpan.FromMinutes(5));
             }
 
-            return Ok(skills);
+            return Ok(ApiResponse<List<Skill>>.Ok(skills ?? new List<Skill>()));
         }
+
+        // ===================== ИЗУЧЕНИЕ НАВЫКА =====================
 
         [HttpPost("learn")]
         [Authorize]
         public async Task<IActionResult> LearnSkill([FromBody] LearnSkillDto dto)
         {
+            if (dto == null)
+                return BadRequest(ApiResponse<object>.Fail("Данные не предоставлены."));
+
             var player = await _context.Players.FindAsync(dto.PlayerId);
             if (player == null)
-            {
-                return NotFound("Игрок не найден.");
-            }
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
 
             var skill = await _context.Skills.FindAsync(dto.SkillId);
             if (skill == null)
-            {
-                return NotFound("Навык не найден.");
-            }
+                return NotFound(ApiResponse<object>.Fail("Навык не найден."));
 
             if (player.Level < skill.RequiredLevel)
-            {
-                return BadRequest("Уровень игрока недостаточен для изучения этого навыка.");
-            }
+                return BadRequest(ApiResponse<object>.Fail($"Требуется уровень {skill.RequiredLevel}."));
 
             var existing = await _context.PlayerSkills
                 .FirstOrDefaultAsync(ps => ps.PlayerId == dto.PlayerId && ps.SkillId == dto.SkillId);
 
             if (existing != null)
-            {
-                return BadRequest("Навык уже изучен.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Навык уже изучен."));
 
             _context.PlayerSkills.Add(new PlayerSkill
             {
@@ -118,35 +118,39 @@ namespace GameAuthAPI.Controllers
 
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"player_skills_{dto.PlayerId}");
+            await _cache.RemoveAsync($"player_skill_{dto.PlayerId}_{dto.SkillId}");
 
-            return Ok("Навык успешно изучен.");
+            return Ok(ApiResponse<object>.Ok(null, "Навык успешно изучен."));
         }
+
+        // ===================== ИСПОЛЬЗОВАНИЕ НАВЫКА (ЗАГОТОВКА) =====================
 
         [HttpPost("use/{playerId}/{skillId}")]
         [Authorize]
         public async Task<IActionResult> UseSkill(int playerId, int skillId)
         {
-            var cacheKey = $"player_skill_{playerId}_{skillId}";
-            var playerSkill = await _cache.GetAsync<PlayerSkill>(cacheKey);
+            var playerSkill = await _context.PlayerSkills
+                .Include(ps => ps.Skill)
+                .FirstOrDefaultAsync(ps => ps.PlayerId == playerId && ps.SkillId == skillId);
 
             if (playerSkill == null)
-            {
-                playerSkill = await _context.PlayerSkills
-                    .Include(ps => ps.Skill)
-                    .FirstOrDefaultAsync(ps => ps.PlayerId == playerId && ps.SkillId == skillId);
+                return NotFound(ApiResponse<object>.Fail("Навык не найден у игрока."));
 
-                if (playerSkill == null)
+            // Здесь будет логика применения навыка в бою (через BattleHub)
+            // Пока просто заглушка
+            return Ok(ApiResponse<object>.Ok(
+                new
                 {
-                    return NotFound("Навык не найден у игрока.");
-                }
-
-                await _cache.SetAsync(cacheKey, playerSkill, TimeSpan.FromMinutes(1));
-            }
-
-            return Ok($"Игрок {playerId} использовал навык {playerSkill.Skill.Name}!");
+                    SkillName = playerSkill.Skill.Name,
+                    Damage = playerSkill.Skill.Damage,
+                    ManaCost = playerSkill.Skill.ManaCost
+                },
+                $"Навык {playerSkill.Skill.Name} использован."
+            ));
         }
+
+        // ===================== ЗАБЫТИЕ НАВЫКА =====================
 
         [HttpDelete("forget/{playerId}/{skillId}")]
         [Authorize]
@@ -156,20 +160,19 @@ namespace GameAuthAPI.Controllers
                 .FirstOrDefaultAsync(ps => ps.PlayerId == playerId && ps.SkillId == skillId);
 
             if (playerSkill == null)
-            {
-                return NotFound("Навык не найден у игрока.");
-            }
+                return NotFound(ApiResponse<object>.Fail("Навык не найден у игрока."));
 
             _context.PlayerSkills.Remove(playerSkill);
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"player_skills_{playerId}");
             await _cache.RemoveAsync($"player_skill_{playerId}_{skillId}");
 
-            return Ok("Навык забыт.");
+            return Ok(ApiResponse<object>.Ok(null, "Навык забыт."));
         }
     }
+
+    // ===================== DTO =====================
 
     public class LearnSkillDto
     {

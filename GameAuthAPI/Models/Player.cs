@@ -24,6 +24,8 @@ namespace GameAuthAPI.Models
         public int Level { get; set; }
         public int Coins { get; set; }
         public int Crystals { get; set; }
+        public int Experience { get; set; }
+        public int ExperienceToNextLevel { get; set; } = 100;
 
         public int CurrentLocationId { get; set; }
         public Location CurrentLocation { get; set; } = null!;
@@ -32,7 +34,21 @@ namespace GameAuthAPI.Models
         public List<Quest> Quests { get; set; } = new();
         public int PlayerKills { get; set; }
 
-        // ========== ШИФРОВАННЫЕ ПОЛЯ ==========
+        // ========== НОВЫЕ ПОЛЯ ДЛЯ КРАФТА, РАНГА И ДОСТИЖЕНИЙ ==========
+        public int CraftSkillLevel { get; set; } = 0;
+        public string Rank { get; set; } = "Новичок";
+        public string AchievementsJson { get; set; } = "[]";
+
+        [NotMapped]
+        public List<int> Achievements
+        {
+            get => string.IsNullOrEmpty(AchievementsJson)
+                ? new List<int>()
+                : JsonSerializer.Deserialize<List<int>>(AchievementsJson) ?? new List<int>();
+            set => AchievementsJson = JsonSerializer.Serialize(value);
+        }
+
+        // ========== ШИФРОВАННЫЕ ПОЛЯ (опционально) ==========
         public string? EmailEncrypted { get; set; }
         public string? PhoneEncrypted { get; set; }
         public string? AddressEncrypted { get; set; }
@@ -88,7 +104,6 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrEmpty(value))
                 return null;
-
             return GetEncryptionService().Encrypt(value);
         }
 
@@ -96,7 +111,6 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrEmpty(encrypted))
                 return null;
-
             return GetEncryptionService().TryDecrypt(encrypted, out var result) ? result : null;
         }
 
@@ -106,13 +120,9 @@ namespace GameAuthAPI.Models
         public Player(string name, string password, PasswordService passwordService, ILogger<Player> logger)
         {
             if (string.IsNullOrWhiteSpace(name))
-            {
                 throw new ArgumentException("Имя пользователя не может быть пустым.", nameof(name));
-            }
             if (string.IsNullOrWhiteSpace(password))
-            {
                 throw new ArgumentException("Пароль не может быть пустым.", nameof(password));
-            }
 
             _passwordService = passwordService ?? throw new ArgumentNullException(nameof(passwordService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -151,7 +161,6 @@ namespace GameAuthAPI.Models
         public Dictionary<string, double> CalculateTotalStats()
         {
             var totalStats = new Dictionary<string, double>();
-
             foreach (var playerItem in PlayerItems)
             {
                 if (playerItem.IsEquipped && playerItem.Item != null)
@@ -159,17 +168,12 @@ namespace GameAuthAPI.Models
                     foreach (var stat in playerItem.Item.Stats)
                     {
                         if (totalStats.ContainsKey(stat.Key))
-                        {
                             totalStats[stat.Key] += stat.Value;
-                        }
                         else
-                        {
                             totalStats[stat.Key] = stat.Value;
-                        }
                     }
                 }
             }
-
             return totalStats;
         }
 
@@ -194,6 +198,17 @@ namespace GameAuthAPI.Models
                         Coins += quest.Reward;
                     }
                 }
+            }
+        }
+
+        public void AddExperience(int amount)
+        {
+            Experience += amount;
+            while (Experience >= ExperienceToNextLevel)
+            {
+                Experience -= ExperienceToNextLevel;
+                Level++;
+                ExperienceToNextLevel = (int)(ExperienceToNextLevel * 1.5);
             }
         }
     }

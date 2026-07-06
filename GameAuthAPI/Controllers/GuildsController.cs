@@ -28,26 +28,24 @@ namespace GameAuthAPI.Controllers
         public async Task<IActionResult> CreateGuild([FromBody] CreateGuildDto createGuildDto)
         {
             if (createGuildDto == null)
-            {
-                return BadRequest("Данные для создания гильдии не предоставлены.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Данные для создания гильдии не предоставлены."));
 
             var playerIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (playerIdClaim == null)
-            {
-                return Unauthorized("Идентификатор пользователя не найден в токене.");
-            }
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
 
             if (!int.TryParse(playerIdClaim.Value, out var playerId))
-            {
-                return BadRequest("Некорректный идентификатор пользователя.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Некорректный идентификатор пользователя."));
 
             var player = await _context.Players.FindAsync(playerId);
             if (player == null)
-            {
-                return NotFound("Пользователь не найден.");
-            }
+                return NotFound(ApiResponse<object>.Fail("Пользователь не найден."));
+
+            // Проверяем, не состоит ли игрок уже в гильдии
+            var existing = await _context.PlayerGuilds
+                .AnyAsync(pg => pg.PlayerId == playerId);
+            if (existing)
+                return BadRequest(ApiResponse<object>.Fail("Вы уже состоите в гильдии."));
 
             var guild = new Guild
             {
@@ -71,8 +69,9 @@ namespace GameAuthAPI.Controllers
             // Инвалидируем кэш
             await _cache.RemoveAsync($"guild_{guild.Id}");
             await _cache.RemoveAsync($"player_guild_{playerId}");
+            await _cache.RemoveAsync("guilds_all");
 
-            return Ok(new { guild.Id, guild.Name });
+            return Ok(ApiResponse<object>.Ok(new { guild.Id, guild.Name }, "Гильдия создана."));
         }
 
         [HttpGet("{id}")]
@@ -90,14 +89,12 @@ namespace GameAuthAPI.Controllers
                     .FirstOrDefaultAsync(g => g.Id == id);
 
                 if (guild == null)
-                {
-                    return NotFound("Гильдия не найдена.");
-                }
+                    return NotFound(ApiResponse<object>.Fail("Гильдия не найдена."));
 
                 await _cache.SetAsync(cacheKey, guild, TimeSpan.FromMinutes(5));
             }
 
-            return Ok(guild);
+            return Ok(ApiResponse<Guild>.Ok(guild));
         }
 
         [HttpGet("player/{playerId}")]
@@ -114,15 +111,32 @@ namespace GameAuthAPI.Controllers
                     .FirstOrDefaultAsync(pg => pg.PlayerId == playerId);
 
                 if (playerGuild == null)
-                {
-                    return NotFound("Игрок не состоит в гильдии.");
-                }
+                    return NotFound(ApiResponse<object>.Fail("Игрок не состоит в гильдии."));
 
                 guild = playerGuild.Guild;
                 await _cache.SetAsync(cacheKey, guild, TimeSpan.FromMinutes(5));
             }
 
-            return Ok(guild);
+            return Ok(ApiResponse<Guild>.Ok(guild));
+        }
+
+        [HttpGet]
+        [Authorize(Policy = "AdminOnly")]
+        public async Task<IActionResult> GetAllGuilds()
+        {
+            const string cacheKey = "guilds_all";
+            var guilds = await _cache.GetAsync<List<Guild>>(cacheKey);
+
+            if (guilds == null)
+            {
+                guilds = await _context.Guilds
+                    .Include(g => g.PlayerGuilds)
+                    .ToListAsync();
+
+                await _cache.SetAsync(cacheKey, guilds, TimeSpan.FromMinutes(5));
+            }
+
+            return Ok(ApiResponse<List<Guild>>.Ok(guilds ?? new List<Guild>()));
         }
     }
 }

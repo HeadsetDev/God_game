@@ -1,0 +1,61 @@
+[
+  {
+    "id": 1,
+    "resultItem": "Меч новичка",
+    "requiredResources": {
+      "Железо": 2,
+      "Дерево": 1
+    },
+    "requirements": [
+      {
+        "type": "Level",
+        "value": 1
+      },
+      {
+        "type": "CraftSkill",
+        "value": 0
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "resultItem": "Стальной меч",
+    "requiredResources": {
+      "Сталь": 3,
+      "Железо": 2
+    },
+    "requirements": [
+      {
+        "type": "Level",
+        "value": 20
+      },
+      {
+        "type": "CraftSkill",
+        "value": 10
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "resultItem": "Кольцо силы",
+    "requiredResources": {
+      "Золото": 2,
+      "Рубин": 1
+    },
+    "requirements": [
+      {
+        "type": "Level",
+        "value": 30
+      },
+      {
+        "type": "CraftSkill",
+        "value": 20
+      },
+      {
+        "type": "Achievement",
+        "value": 5,
+        "additionalData": "Мастер-кузнец"
+      }
+    ]
+  }
+]

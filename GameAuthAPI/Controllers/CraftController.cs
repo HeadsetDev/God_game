@@ -1,6 +1,10 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using GameAuthAPI.Models;
 using GameAuthAPI.Data;
+using GameAuthAPI.Models;
+using GameAuthAPI.Services;
+using GameAuthAPI.DTOs;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 namespace GameAuthAPI.Controllers
 {
@@ -9,40 +13,119 @@ namespace GameAuthAPI.Controllers
     public class CraftController : ControllerBase
     {
         private readonly GameDbContext _context;
+        private readonly RedisCacheService _cache;
+        private readonly StaticDataService _staticDataService;
 
-        public CraftController(GameDbContext context)
+        public CraftController(GameDbContext context, RedisCacheService cache, StaticDataService staticDataService)
         {
             _context = context;
+            _cache = cache;
+            _staticDataService = staticDataService;
+        }
+
+        [HttpGet("recipes/{playerId}")]
+        [Authorize]
+        public async Task<IActionResult> GetAvailableRecipes(int playerId)
+        {
+            var player = await _context.Players
+                .Include(p => p.PlayerItems)
+                .FirstOrDefaultAsync(p => p.Id == playerId);
+
+            if (player == null)
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
+
+            var allRecipes = await _staticDataService.GetCraftRecipesAsync();
+            var availableRecipes = allRecipes
+                .Where(r => _staticDataService.IsRecipeAvailable(player, r))
+                .ToList();
+
+            return Ok(ApiResponse<List<CraftRecipe>>.Ok(availableRecipes));
         }
 
         [HttpPost("craft/{playerId}")]
-        public IActionResult CraftItem(int playerId, [FromBody] CraftRecipe recipe)
+        [Authorize]
+        public async Task<IActionResult> CraftItem(int playerId, [FromBody] CraftRequest request)
         {
-            var player = _context.Players.Find(playerId);
-            if (player == null)
-            {
-                return NotFound("Игрок не найден.");
-            }
+            if (request == null || request.RecipeId <= 0)
+                return BadRequest(ApiResponse<object>.Fail("Некорректный запрос."));
 
-            // Проверяем, есть ли у игрока необходимые ресурсы
+            var player = await _context.Players
+                .Include(p => p.PlayerItems)
+                    .ThenInclude(pi => pi.Item)
+                .FirstOrDefaultAsync(p => p.Id == playerId);
+
+            if (player == null)
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
+
+            var recipe = await _staticDataService.GetCraftRecipeByIdAsync(request.RecipeId);
+            if (recipe == null)
+                return NotFound(ApiResponse<object>.Fail("Рецепт не найден."));
+
+            if (!_staticDataService.IsRecipeAvailable(player, recipe))
+                return BadRequest(ApiResponse<object>.Fail("Рецепт недоступен для вашего персонажа."));
+
             foreach (var resource in recipe.RequiredResources)
             {
-                if (!player.Resources.ContainsKey(resource.Key) || player.Resources[resource.Key] < resource.Value)
+                var playerItem = player.PlayerItems
+                    .FirstOrDefault(pi => pi.Item != null && pi.Item.Name == resource.Key);
+
+                if (playerItem == null || playerItem.Quantity < resource.Value)
+                    return BadRequest(ApiResponse<object>.Fail($"Недостаточно ресурса {resource.Key}."));
+            }
+
+            foreach (var resource in recipe.RequiredResources)
+            {
+                var playerItem = player.PlayerItems
+                    .FirstOrDefault(pi => pi.Item != null && pi.Item.Name == resource.Key);
+
+                if (playerItem != null)
                 {
-                    return BadRequest($"Недостаточно ресурса {resource.Key}.");
+                    playerItem.Quantity -= resource.Value;
+                    if (playerItem.Quantity <= 0)
+                        _context.PlayerItems.Remove(playerItem);
                 }
             }
 
-            // Вычитаем ресурсы
-            foreach (var resource in recipe.RequiredResources)
+            var resultItem = await _context.Items
+                .FirstOrDefaultAsync(i => i.Name == recipe.ResultItem);
+
+            if (resultItem == null)
+                return NotFound(ApiResponse<object>.Fail($"Предмет {recipe.ResultItem} не найден в базе данных."));
+
+            var existing = player.PlayerItems
+                .FirstOrDefault(pi => pi.ItemId == resultItem.Id);
+
+            if (existing != null)
+                existing.Quantity++;
+            else
             {
-                player.Resources[resource.Key] -= resource.Value;
+                _context.PlayerItems.Add(new PlayerItem
+                {
+                    PlayerId = playerId,
+                    ItemId = resultItem.Id,
+                    Quantity = 1
+                });
             }
 
-            // Добавляем предмет игроку (здесь можно добавить логику для добавления предмета)
-            _context.SaveChanges();
+            player.CraftSkillLevel += 1;
 
-            return Ok($"Предмет {recipe.ResultItem} успешно создан.");
+            await _context.SaveChangesAsync();
+
+            await _cache.RemoveAsync($"player_inventory_{playerId}");
+            await _cache.RemoveAsync($"player_{playerId}");
+
+            return Ok(ApiResponse<object>.Ok(
+                new { playerId, craftedItem = recipe.ResultItem },
+                $"Предмет {recipe.ResultItem} успешно создан. Навык крафта повышен до {player.CraftSkillLevel}."
+            ));
+        }
+
+        [HttpGet("recipes/all")]
+        [Authorize(Policy = "AdminOnly")]
+        public async Task<IActionResult> GetAllRecipes()
+        {
+            var recipes = await _staticDataService.GetCraftRecipesAsync();
+            return Ok(ApiResponse<List<CraftRecipe>>.Ok(recipes ?? new List<CraftRecipe>()));
         }
     }
 }

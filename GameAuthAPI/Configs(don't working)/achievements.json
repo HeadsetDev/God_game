@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "name": "Первая кровь",
+    "description": "Убить первого моба",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 1
+    },
+    "reward": {
+      "coins": 50,
+      "experience": 20
+    }
+  },
+  {
+    "id": 2,
+    "name": "Мастер меча",
+    "description": "Убить 100 мобов мечом",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 100
+    },
+    "reward": {
+      "coins": 500,
+      "experience": 200,
+      "itemId": 3
+    }
+  }
+]

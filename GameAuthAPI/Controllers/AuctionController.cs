@@ -1,184 +1,168 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using GameAuthAPI.Data;
-using GameAuthAPI.Models;
 using GameAuthAPI.DTOs;
+using GameAuthAPI.Models;
 using GameAuthAPI.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using Microsoft.Extensions.Caching.Memory;
+using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 
 namespace GameAuthAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController : ControllerBase
+    public class AuctionController : ControllerBase
     {
         private readonly GameDbContext _context;
-        private readonly PasswordService _passwordService;
-        private readonly IConfiguration _config;
-        private readonly ILogger<AuthController> _logger;
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly IMemoryCache _cache;
-        private readonly SecurityLogger _securityLogger;
-        private readonly EncryptionService _encryptionService;
+        private readonly RabbitMQService _rabbitMQService;
+        private readonly RedisCacheService _cache;
+        private readonly IMapper _mapper;
 
-        public AuthController(
+        public AuctionController(
             GameDbContext context,
-            PasswordService passwordService,
-            IConfiguration config,
-            ILogger<AuthController> logger,
-            ILoggerFactory loggerFactory,
-            IMemoryCache cache,
-            SecurityLogger securityLogger,
-            EncryptionService encryptionService)
+            RabbitMQService rabbitMQService,
+            RedisCacheService cache,
+            IMapper mapper)
         {
             _context = context;
-            _passwordService = passwordService;
-            _config = config;
-            _logger = logger;
-            _loggerFactory = loggerFactory;
+            _rabbitMQService = rabbitMQService;
             _cache = cache;
-            _securityLogger = securityLogger;
-            _encryptionService = encryptionService;
+            _mapper = mapper;
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
+        // ===================== ПУБЛИКАЦИЯ ЛОТА =====================
+
+        [HttpPost("publish")]
+        [Authorize]
+        public async Task<IActionResult> PublishLot([FromBody] AuctionLot lot)
         {
-            if (registerUserDto == null)
-                return BadRequest(ApiResponse<object>.Fail("Данные для регистрации не предоставлены."));
+            if (lot == null)
+                return BadRequest(ApiResponse<object>.Fail("Лот не может быть пустым."));
 
-            if (!IsPasswordStrong(registerUserDto.Password))
-                return BadRequest(ApiResponse<object>.Fail("Пароль должен содержать минимум 8 символов, буквы и цифры."));
+            // Публикуем в RabbitMQ
+            _rabbitMQService.PublishAuctionLot(lot);
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            // Сохраняем в БД для истории
+            lot.CreatedAt = DateTime.UtcNow;
+            lot.IsActive = true;
+            _context.AuctionLots.Add(lot);
+            await _context.SaveChangesAsync();
 
-            try
-            {
-                if (await _context.Players.AnyAsync(u => u.Name == registerUserDto.Username))
-                {
-                    _securityLogger.LogSuspiciousActivity("Попытка регистрации с существующим именем",
-                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown", registerUserDto.Username);
-                    return BadRequest(ApiResponse<object>.Fail("Пользователь уже существует."));
-                }
+            // Инвалидируем кэш
+            await _cache.RemoveAsync("auction_lots_active");
+            await _cache.RemoveAsync($"auction_lot_{lot.Id}");
 
-                var defaultLocation = await _context.Locations.FirstOrDefaultAsync();
-                if (defaultLocation == null)
-                {
-                    defaultLocation = new Location { Name = "Стартовая локация", Description = "Место, где появляются новые игроки." };
-                    _context.Locations.Add(defaultLocation);
-                    await _context.SaveChangesAsync();
-                }
-
-                var playerLogger = _loggerFactory.CreateLogger<Player>();
-                var newPlayer = new Player(
-                    registerUserDto.Username,
-                    registerUserDto.Password,
-                    _passwordService,
-                    playerLogger
-                )
-                {
-                    Role = registerUserDto.Role,
-                    CurrentLocationId = defaultLocation.Id
-                };
-
-                _context.Players.Add(newPlayer);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                _securityLogger.LogSecurityEvent("USER_REGISTERED", $"Новый пользователь {registerUserDto.Username} зарегистрирован",
-                    HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown", registerUserDto.Username);
-
-                return Ok(ApiResponse<object>.Ok(null, "Пользователь зарегистрирован."));
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Ошибка при регистрации");
-                return StatusCode(500, ApiResponse<object>.Fail("Произошла ошибка при регистрации.", new List<string> { ex.Message }));
-            }
+            return Ok(ApiResponse<object>.Ok(new { lot.Id, lot.ItemName }, "Лот опубликован на аукционе."));
         }
 
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginUserDto loginUserDto)
+        // ===================== ПОЛУЧЕНИЕ ЛОТА ИЗ ОЧЕРЕДИ =====================
+
+        [HttpGet("receive")]
+        public IActionResult ReceiveLot()
         {
-            if (loginUserDto == null)
-                return BadRequest(ApiResponse<object>.Fail("Данные для входа не предоставлены."));
+            var lot = _rabbitMQService.ReceiveAuctionLot();
 
-            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var key = $"failed_login_{ip}_{loginUserDto.Username}";
+            if (lot == null)
+                return Ok(ApiResponse<object>.Ok(null, "Нет доступных лотов на аукционе."));
 
-            var attempts = _cache.Get<int>(key);
-            if (attempts >= 5)
-            {
-                _securityLogger.LogSuspiciousActivity("Блокировка IP после 5 неудачных попыток входа", ip, loginUserDto.Username);
-                return StatusCode(403, ApiResponse<object>.Fail("Слишком много попыток входа. Попробуйте позже."));
-            }
-
-            try
-            {
-                var player = await _context.Players.FirstOrDefaultAsync(u => u.Name == loginUserDto.Username);
-                if (player == null || !player.CheckPassword(loginUserDto.Password))
-                {
-                    _cache.Set(key, attempts + 1, TimeSpan.FromMinutes(15));
-                    _securityLogger.LogSuspiciousActivity("Неудачная попытка входа", ip, loginUserDto.Username);
-                    return Unauthorized(ApiResponse<object>.Fail("Неверные данные."));
-                }
-
-                _cache.Remove(key);
-                var token = GenerateJwtToken(player.Name, player.Role);
-
-                _securityLogger.LogSecurityEvent("USER_LOGIN", $"Пользователь {player.Name} успешно вошел", ip, player.Name);
-
-                return Ok(ApiResponse<object>.Ok(new { token }, "Вход выполнен."));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при входе");
-                return StatusCode(500, ApiResponse<object>.Fail("Произошла ошибка при входе.", new List<string> { ex.Message }));
-            }
+            return Ok(ApiResponse<AuctionLot>.Ok(lot, "Лот получен из очереди."));
         }
 
-        private string GenerateJwtToken(string username, string role)
+        // ===================== АКТИВНЫЕ ЛОТЫ =====================
+
+        [HttpGet("active")]
+        public async Task<IActionResult> GetActiveLots()
         {
-            var jwtSettings = _config.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Секретный ключ не найден.");
+            const string cacheKey = "auction_lots_active";
+            var lots = await _cache.GetAsync<List<AuctionLot>>(cacheKey);
 
-            var player = _context.Players.FirstOrDefault(p => p.Name == username);
-            if (player == null)
-                throw new InvalidOperationException("Пользователь не найден.");
-
-            var claims = new List<Claim>
+            if (lots == null)
             {
-                new Claim(ClaimTypes.NameIdentifier, player.Id.ToString()),
-                new Claim(ClaimTypes.Name, username),
-                new Claim(ClaimTypes.Role, role),
-                new Claim("SessionId", Guid.NewGuid().ToString())
-            };
+                lots = await _context.AuctionLots
+                    .Where(l => l.IsActive && l.EndTime > DateTime.UtcNow)
+                    .OrderByDescending(l => l.CreatedAt)
+                    .ToListAsync();
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+                await _cache.SetAsync(cacheKey, lots, TimeSpan.FromMinutes(5));
+            }
 
-            var token = new JwtSecurityToken(
-                issuer: jwtSettings["Issuer"],
-                audience: jwtSettings["Audience"],
-                claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(15),
-                signingCredentials: creds
-            );
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            return Ok(ApiResponse<List<AuctionLot>>.Ok(lots ?? new List<AuctionLot>()));
         }
 
-        private bool IsPasswordStrong(string password)
+        // ===================== ПОЛУЧЕНИЕ ЛОТА ПО ID =====================
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetLot(int id)
         {
-            return password.Length >= 8 &&
-                   password.Any(char.IsUpper) &&
-                   password.Any(char.IsLower) &&
-                   password.Any(char.IsDigit);
+            var cacheKey = $"auction_lot_{id}";
+            var lot = await _cache.GetAsync<AuctionLot>(cacheKey);
+
+            if (lot == null)
+            {
+                lot = await _context.AuctionLots.FindAsync(id);
+                if (lot == null)
+                    return NotFound(ApiResponse<object>.Fail("Лот не найден."));
+
+                await _cache.SetAsync(cacheKey, lot, TimeSpan.FromMinutes(5));
+            }
+
+            return Ok(ApiResponse<AuctionLot>.Ok(lot));
         }
+
+        // ===================== РАЗМЕЩЕНИЕ СТАВКИ =====================
+
+        [HttpPost("bid")]
+        [Authorize]
+        public async Task<IActionResult> PlaceBid([FromBody] AuctionBid bid)
+        {
+            if (bid == null || bid.LotId <= 0 || bid.Amount <= 0)
+                return BadRequest(ApiResponse<object>.Fail("Некорректные данные ставки."));
+
+            var lot = await _context.AuctionLots.FindAsync(bid.LotId);
+            if (lot == null)
+                return NotFound(ApiResponse<object>.Fail("Лот не найден."));
+
+            if (!lot.IsActive || lot.EndTime <= DateTime.UtcNow)
+                return BadRequest(ApiResponse<object>.Fail("Лот уже неактивен."));
+
+            if (bid.Amount <= lot.StartingPrice)
+                return BadRequest(ApiResponse<object>.Fail($"Ставка должна быть выше текущей цены ({lot.StartingPrice})."));
+
+            // Обновляем лот
+            lot.StartingPrice = bid.Amount;
+            lot.Seller = bid.BidderName; // Здесь можно хранить имя последнего ставящего
+
+            // Если нужно сохранить историю ставок, можно добавить отдельную таблицу, но пока просто обновляем лот
+            await _context.SaveChangesAsync();
+
+            // Инвалидируем кэш
+            await _cache.RemoveAsync($"auction_lot_{lot.Id}");
+            await _cache.RemoveAsync("auction_lots_active");
+
+            return Ok(ApiResponse<object>.Ok(new { lot.Id, NewPrice = lot.StartingPrice }, $"Ставка {bid.Amount} принята для лота {lot.Id}."));
+        }
+
+        // ===================== ИСТОРИЯ ЛОТОВ (ДЛЯ АДМИНА) =====================
+
+        [HttpGet("history")]
+        [Authorize(Policy = "AdminOnly")]
+        public async Task<IActionResult> GetHistory([FromQuery] int limit = 50)
+        {
+            var lots = await _context.AuctionLots
+                .OrderByDescending(l => l.CreatedAt)
+                .Take(limit)
+                .ToListAsync();
+
+            return Ok(ApiResponse<List<AuctionLot>>.Ok(lots));
+        }
+    }
+
+    // ===================== DTO ДЛЯ СТАВКИ =====================
+
+    public class AuctionBid
+    {
+        public int LotId { get; set; }
+        public decimal Amount { get; set; }
+        public string BidderName { get; set; } = string.Empty;
     }
 }
