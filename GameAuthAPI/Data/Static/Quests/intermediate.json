@@ -1,0 +1,11 @@
+[
+  {
+    "id": 5,
+    "name": "Угроза с севера",
+    "description": "Уничтожить 20 орков у горного перевала.",
+    "reward": 200,
+    "conditionsJson": "{\"MonstersKilled\":20}",
+    "isGroupQuest": true,
+    "requiredPlayers": 2
+  }
+]

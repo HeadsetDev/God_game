@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GameAuthAPI.Migrations
 {
     [DbContext(typeof(GameDbContext))]
-    [Migration("20260630124544_AddEncryptionFields")]
-    partial class AddEncryptionFields
+    [Migration("20260708113159_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -309,10 +309,44 @@ namespace GameAuthAPI.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AchievementsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("ActiveStance")
+                        .HasColumnType("int");
+
                     b.Property<string>("AddressEncrypted")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("AgilityBonus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BaseAgility")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BaseIntelligence")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BasePerception")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BaseStrength")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BaseVitality")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BaseWillpower")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Class")
+                        .HasColumnType("int");
+
                     b.Property<int>("Coins")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CraftSkillLevel")
                         .HasColumnType("int");
 
                     b.Property<int>("Crystals")
@@ -324,6 +358,18 @@ namespace GameAuthAPI.Migrations
                     b.Property<string>("EmailEncrypted")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("Experience")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ExperienceToNextLevel")
+                        .HasColumnType("int");
+
+                    b.Property<int>("IntelligenceBonus")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("LastStanceSwitch")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("Level")
                         .HasColumnType("int");
 
@@ -334,6 +380,9 @@ namespace GameAuthAPI.Migrations
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PerceptionBonus")
+                        .HasColumnType("int");
 
                     b.Property<string>("PhoneEncrypted")
                         .HasColumnType("nvarchar(max)");
@@ -353,9 +402,22 @@ namespace GameAuthAPI.Migrations
                     b.Property<int>("PvP_Wins")
                         .HasColumnType("int");
 
+                    b.Property<string>("Rank")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("StrengthBonus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("VitalityBonus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WillpowerBonus")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -541,6 +603,9 @@ namespace GameAuthAPI.Migrations
                     b.Property<int>("Damage")
                         .HasColumnType("int");
 
+                    b.Property<int>("DamageType")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -557,6 +622,15 @@ namespace GameAuthAPI.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("RequiredLevel")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RequiredStance")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StatusChance")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("StatusEffect")
                         .HasColumnType("int");
 
                     b.Property<string>("Type")

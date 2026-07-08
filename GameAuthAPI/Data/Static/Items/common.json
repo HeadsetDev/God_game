@@ -1,0 +1,28 @@
+[
+  {
+    "id": 1,
+    "name": "Меч новичка",
+    "rarity": 0,
+    "type": 3,
+    "slot": 0,
+    "stats": { "AttackPower": 5 },
+    "canBeUpgraded": true,
+    "maxUpgradeLevel": 3
+  },
+  {
+    "id": 2,
+    "name": "Железо",
+    "rarity": 0,
+    "type": 0,
+    "slot": 0,
+    "stats": {}
+  },
+  {
+    "id": 3,
+    "name": "Шкура волка",
+    "rarity": 0,
+    "type": 0,
+    "slot": 0,
+    "stats": {}
+  }
+]

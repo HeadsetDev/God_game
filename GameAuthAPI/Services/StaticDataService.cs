@@ -1,6 +1,6 @@
-using System.Text.Json;
 using GameAuthAPI.Models;
 using Microsoft.Extensions.Caching.Distributed;
+using System.Text.Json;
 
 namespace GameAuthAPI.Services
 {
@@ -17,61 +17,93 @@ namespace GameAuthAPI.Services
             _staticDataPath = Path.Combine(env.ContentRootPath, "Data", "Static");
         }
 
-        // ===================== ЗАГРУЗКА ИЗ ФАЙЛОВ =====================
+        // ===================== ВСПОМОГАТЕЛЬНЫЙ МЕТОД =====================
 
-        private async Task<T> LoadFromFileAsync<T>(string fileName, string cacheKey, TimeSpan? cacheExpiration = null)
+        private async Task<List<T>> LoadFromFolderAsync<T>(string folderName, string cacheKey, TimeSpan? expiration = null) where T : class
         {
+            // 1. Пытаемся взять из кэша
             var cached = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cached))
             {
-                return JsonSerializer.Deserialize<T>(cached) ?? Activator.CreateInstance<T>();
+                try
+                {
+                    return JsonSerializer.Deserialize<List<T>>(cached) ?? new List<T>();
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Ошибка десериализации кэша для {CacheKey}, загружаем из файлов.", cacheKey);
+                }
             }
 
-            var filePath = Path.Combine(_staticDataPath, fileName);
-            if (!File.Exists(filePath))
+            var result = new List<T>();
+            var folderPath = Path.Combine(_staticDataPath, folderName);
+
+            if (!Directory.Exists(folderPath))
             {
-                _logger.LogWarning($"Файл {filePath} не найден. Возвращаем пустые данные.");
-                return Activator.CreateInstance<T>();
+                _logger.LogWarning("Папка {FolderPath} не найдена. Возвращаем пустой список.", folderPath);
+                return result;
             }
 
-            var json = await File.ReadAllTextAsync(filePath);
-            var data = JsonSerializer.Deserialize<T>(json);
+            var files = Directory.GetFiles(folderPath, "*.json");
+            if (!files.Any())
+            {
+                _logger.LogWarning("В папке {FolderPath} нет JSON-файлов.", folderPath);
+                return result;
+            }
 
-            if (data != null)
+            foreach (var file in files)
+            {
+                try
+                {
+                    var json = await File.ReadAllTextAsync(file);
+                    var batch = JsonSerializer.Deserialize<List<T>>(json);
+                    if (batch != null)
+                        result.AddRange(batch);
+                    else
+                        _logger.LogWarning("Файл {File} содержит невалидный JSON или пустой массив.", file);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка чтения файла {File}", file);
+                }
+            }
+
+            if (result.Any())
             {
                 var options = new DistributedCacheEntryOptions();
-                if (cacheExpiration.HasValue)
-                    options.AbsoluteExpirationRelativeToNow = cacheExpiration;
+                if (expiration.HasValue)
+                    options.AbsoluteExpirationRelativeToNow = expiration;
                 else
-                    options.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30);
+                    options.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60);
 
-                await _cache.SetStringAsync(cacheKey, json, options);
+                var serialized = JsonSerializer.Serialize(result);
+                await _cache.SetStringAsync(cacheKey, serialized, options);
             }
 
-            return data ?? Activator.CreateInstance<T>();
+            return result;
         }
 
-        // ===================== ПОЛУЧЕНИЕ ДАННЫХ =====================
+        // ===================== ПУБЛИЧНЫЕ МЕТОДЫ =====================
 
         public async Task<List<Item>> GetItemsAsync()
-            => await LoadFromFileAsync<List<Item>>("items.json", "static_items", TimeSpan.FromMinutes(60));
+            => await LoadFromFolderAsync<Item>("Items", "static_items", TimeSpan.FromMinutes(60));
 
         public async Task<List<Mob>> GetMobsAsync()
-            => await LoadFromFileAsync<List<Mob>>("mobs.json", "static_mobs", TimeSpan.FromMinutes(60));
+            => await LoadFromFolderAsync<Mob>("Mobs", "static_mobs", TimeSpan.FromMinutes(60));
 
         public async Task<List<Quest>> GetQuestsAsync()
-            => await LoadFromFileAsync<List<Quest>>("quests.json", "static_quests", TimeSpan.FromMinutes(60));
+            => await LoadFromFolderAsync<Quest>("Quests", "static_quests", TimeSpan.FromMinutes(60));
 
         public async Task<List<Skill>> GetSkillsAsync()
-            => await LoadFromFileAsync<List<Skill>>("skills.json", "static_skills", TimeSpan.FromMinutes(60));
-
-        public async Task<List<CraftRecipe>> GetCraftRecipesAsync()
-            => await LoadFromFileAsync<List<CraftRecipe>>("craft_recipes.json", "static_craft_recipes", TimeSpan.FromMinutes(60));
+            => await LoadFromFolderAsync<Skill>("Skills", "static_skills", TimeSpan.FromMinutes(60));
 
         public async Task<List<Achievement>> GetAchievementsAsync()
-            => await LoadFromFileAsync<List<Achievement>>("achievements.json", "static_achievements", TimeSpan.FromMinutes(60));
+            => await LoadFromFolderAsync<Achievement>("Achievements", "static_achievements", TimeSpan.FromMinutes(60));
 
-        // ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =====================
+        public async Task<List<CraftRecipe>> GetCraftRecipesAsync()
+            => await LoadFromFolderAsync<CraftRecipe>("CraftRecipes", "static_craft_recipes", TimeSpan.FromMinutes(60));
+
+        // ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ПОИСКА =====================
 
         public async Task<Item?> GetItemByIdAsync(int id)
         {
@@ -124,6 +156,7 @@ namespace GameAuthAPI.Services
                     case "achievement":
                         if (req.AdditionalData != null)
                         {
+                            // Проверяем, есть ли у игрока достижение с таким ID
                             if (!player.Achievements.Contains(req.Value))
                                 return false;
                         }

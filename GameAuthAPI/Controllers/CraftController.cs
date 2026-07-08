@@ -5,6 +5,7 @@ using GameAuthAPI.Services;
 using GameAuthAPI.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace GameAuthAPI.Controllers
 {
@@ -27,6 +28,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> GetAvailableRecipes(int playerId)
         {
+            var authError = EnsureOwnPlayerId(playerId);
+            if (authError != null)
+                return authError;
+
             var player = await _context.Players
                 .Include(p => p.PlayerItems)
                 .FirstOrDefaultAsync(p => p.Id == playerId);
@@ -46,6 +51,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> CraftItem(int playerId, [FromBody] CraftRequest request)
         {
+            var authError = EnsureOwnPlayerId(playerId);
+            if (authError != null)
+                return authError;
+
             if (request == null || request.RecipeId <= 0)
                 return BadRequest(ApiResponse<object>.Fail("Некорректный запрос."));
 
@@ -126,6 +135,18 @@ namespace GameAuthAPI.Controllers
         {
             var recipes = await _staticDataService.GetCraftRecipesAsync();
             return Ok(ApiResponse<List<CraftRecipe>>.Ok(recipes ?? new List<CraftRecipe>()));
+        }
+
+        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
+
+            if (authenticatedPlayerId != requestedPlayerId)
+                return Forbid();
+
+            return null;
         }
     }
 }

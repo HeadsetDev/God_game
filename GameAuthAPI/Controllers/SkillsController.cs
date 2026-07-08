@@ -5,6 +5,7 @@ using GameAuthAPI.Models;
 using GameAuthAPI.DTOs;
 using GameAuthAPI.Services;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace GameAuthAPI.Controllers
 {
@@ -21,8 +22,6 @@ namespace GameAuthAPI.Controllers
             _cache = cache;
         }
 
-        // ===================== ПОЛУЧЕНИЕ ВСЕХ НАВЫКОВ =====================
-
         [HttpGet]
         public async Task<IActionResult> GetAllSkills()
         {
@@ -37,8 +36,6 @@ namespace GameAuthAPI.Controllers
 
             return Ok(ApiResponse<List<Skill>>.Ok(skills ?? new List<Skill>()));
         }
-
-        // ===================== ПОЛУЧЕНИЕ НАВЫКА ПО ID =====================
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetSkill(int id)
@@ -58,8 +55,7 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<Skill>.Ok(skill));
         }
 
-        // ===================== ПОЛУЧЕНИЕ НАВЫКОВ ИГРОКА =====================
-
+        // Публичный просмотр навыков игрока — без ограничения владения.
         [HttpGet("player/{playerId}")]
         [Authorize]
         public async Task<IActionResult> GetPlayerSkills(int playerId)
@@ -84,14 +80,16 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<List<Skill>>.Ok(skills ?? new List<Skill>()));
         }
 
-        // ===================== ИЗУЧЕНИЕ НАВЫКА =====================
-
         [HttpPost("learn")]
         [Authorize]
         public async Task<IActionResult> LearnSkill([FromBody] LearnSkillDto dto)
         {
             if (dto == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные не предоставлены."));
+
+            var authError = EnsureOwnPlayerId(dto.PlayerId);
+            if (authError != null)
+                return authError;
 
             var player = await _context.Players.FindAsync(dto.PlayerId);
             if (player == null)
@@ -124,12 +122,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<object>.Ok(null, "Навык успешно изучен."));
         }
 
-        // ===================== ИСПОЛЬЗОВАНИЕ НАВЫКА (ЗАГОТОВКА) =====================
-
         [HttpPost("use/{playerId}/{skillId}")]
         [Authorize]
         public async Task<IActionResult> UseSkill(int playerId, int skillId)
         {
+            var authError = EnsureOwnPlayerId(playerId);
+            if (authError != null)
+                return authError;
+
             var playerSkill = await _context.PlayerSkills
                 .Include(ps => ps.Skill)
                 .FirstOrDefaultAsync(ps => ps.PlayerId == playerId && ps.SkillId == skillId);
@@ -138,7 +138,6 @@ namespace GameAuthAPI.Controllers
                 return NotFound(ApiResponse<object>.Fail("Навык не найден у игрока."));
 
             // Здесь будет логика применения навыка в бою (через BattleHub)
-            // Пока просто заглушка
             return Ok(ApiResponse<object>.Ok(
                 new
                 {
@@ -150,12 +149,14 @@ namespace GameAuthAPI.Controllers
             ));
         }
 
-        // ===================== ЗАБЫТИЕ НАВЫКА =====================
-
         [HttpDelete("forget/{playerId}/{skillId}")]
         [Authorize]
         public async Task<IActionResult> ForgetSkill(int playerId, int skillId)
         {
+            var authError = EnsureOwnPlayerId(playerId);
+            if (authError != null)
+                return authError;
+
             var playerSkill = await _context.PlayerSkills
                 .FirstOrDefaultAsync(ps => ps.PlayerId == playerId && ps.SkillId == skillId);
 
@@ -170,9 +171,21 @@ namespace GameAuthAPI.Controllers
 
             return Ok(ApiResponse<object>.Ok(null, "Навык забыт."));
         }
-    }
 
-    // ===================== DTO =====================
+        // Не даёт выполнить действие от имени чужого playerId,
+        // даже если он подставлен в теле запроса или URL.
+        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
+
+            if (authenticatedPlayerId != requestedPlayerId)
+                return Forbid();
+
+            return null;
+        }
+    }
 
     public class LearnSkillDto
     {

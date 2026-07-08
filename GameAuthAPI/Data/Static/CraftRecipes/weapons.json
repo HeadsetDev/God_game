@@ -1,0 +1,40 @@
+[
+  {
+    "id": 1,
+    "resultItem": "Меч новичка",
+    "requiredResources": { "Железо": 2 },
+    "requirements": [
+      {
+        "type": "Level",
+        "value": 1
+      },
+      {
+        "type": "CraftSkill",
+        "value": 0
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "resultItem": "Меч охотника на драконов",
+    "requiredResources": {
+      "Железо": 10,
+      "Кость дракона": 2
+    },
+    "requirements": [
+      {
+        "type": "Level",
+        "value": 20
+      },
+      {
+        "type": "CraftSkill",
+        "value": 15
+      },
+      {
+        "type": "Achievement",
+        "value": 4,
+        "additionalData": "Повелитель драконов"
+      }
+    ]
+  }
+]

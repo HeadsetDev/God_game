@@ -1,0 +1,29 @@
+[
+  {
+    "id": 10,
+    "name": "Начинающий кузнец",
+    "description": "Создать первый предмет",
+    "condition": {
+      "type": "ItemsCrafted",
+      "value": 1
+    },
+    "reward": {
+      "coins": 10,
+      "experience": 5
+    }
+  },
+  {
+    "id": 11,
+    "name": "Мастер-кузнец",
+    "description": "Создать 50 предметов",
+    "condition": {
+      "type": "ItemsCrafted",
+      "value": 50
+    },
+    "reward": {
+      "coins": 300,
+      "experience": 150,
+      "rank": "Кузнец"
+    }
+  }
+]

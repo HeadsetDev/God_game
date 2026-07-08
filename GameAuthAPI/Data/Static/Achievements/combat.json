@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "name": "Первая кровь",
+    "description": "Убить первого моба",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 1
+    },
+    "reward": {
+      "coins": 10,
+      "experience": 5
+    }
+  },
+  {
+    "id": 2,
+    "name": "Охотник на гоблинов",
+    "description": "Убить 20 гоблинов",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 20
+    },
+    "reward": {
+      "coins": 50,
+      "experience": 25
+    }
+  },
+  {
+    "id": 3,
+    "name": "Истребитель орков",
+    "description": "Убить 50 орков",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 50
+    },
+    "reward": {
+      "coins": 150,
+      "experience": 75,
+      "itemId": 4
+    }
+  },
+  {
+    "id": 4,
+    "name": "Повелитель драконов",
+    "description": "Убить 10 драконов",
+    "condition": {
+      "type": "MonstersKilled",
+      "value": 10
+    },
+    "reward": {
+      "coins": 1000,
+      "experience": 500,
+      "itemId": 6
+    }
+  }
+]

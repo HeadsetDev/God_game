@@ -1,6 +1,6 @@
 namespace GameAuthAPI.Models
 {
-    public class Mob
+    public class Mob : IDamageable
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;

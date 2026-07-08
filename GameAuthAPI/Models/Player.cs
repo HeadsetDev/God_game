@@ -26,6 +26,8 @@ namespace GameAuthAPI.Models
         public int Crystals { get; set; }
         public int Experience { get; set; }
         public int ExperienceToNextLevel { get; set; } = 100;
+        public int Health => MaxHealth;
+        public int Defense => TotalResistance.TotalPhysicalDefense;
 
         public int CurrentLocationId { get; set; }
         public Location CurrentLocation { get; set; } = null!;
@@ -34,7 +36,103 @@ namespace GameAuthAPI.Models
         public List<Quest> Quests { get; set; } = new();
         public int PlayerKills { get; set; }
 
-        // ========== НОВЫЕ ПОЛЯ ДЛЯ КРАФТА, РАНГА И ДОСТИЖЕНИЙ ==========
+        // ========== КЛАСС И СТОЙКИ ==========
+        public ClassType Class { get; set; }
+        public StanceType ActiveStance { get; set; }
+        public DateTime LastStanceSwitch { get; set; } = DateTime.MinValue;
+
+        [NotMapped]
+        public bool CanSwitchStance => (DateTime.UtcNow - LastStanceSwitch).TotalSeconds >= 30;
+
+        // ========== ХАРАКТЕРИСТИКИ ==========
+        public int BaseStrength { get; set; }
+        public int BaseAgility { get; set; }
+        public int BaseIntelligence { get; set; }
+        public int BaseVitality { get; set; }
+        public int BaseWillpower { get; set; }
+        public int BasePerception { get; set; }
+
+        public int StrengthBonus { get; set; }
+        public int AgilityBonus { get; set; }
+        public int IntelligenceBonus { get; set; }
+        public int VitalityBonus { get; set; }
+        public int WillpowerBonus { get; set; }
+        public int PerceptionBonus { get; set; }
+
+        [NotMapped]
+        public int TotalStrength => BaseStrength + StrengthBonus;
+        [NotMapped]
+        public int TotalAgility => BaseAgility + AgilityBonus;
+        [NotMapped]
+        public int TotalIntelligence => BaseIntelligence + IntelligenceBonus;
+        [NotMapped]
+        public int TotalVitality => BaseVitality + VitalityBonus;
+        [NotMapped]
+        public int TotalWillpower => BaseWillpower + WillpowerBonus;
+        [NotMapped]
+        public int TotalPerception => BasePerception + PerceptionBonus;
+
+        [NotMapped]
+        public int MaxHealth => 100 + TotalVitality * 10;
+        [NotMapped]
+        public int MaxMana => 50 + TotalIntelligence * 5 + TotalWillpower * 2;
+
+        // ========== РЕЗИСТЫ ==========
+        [NotMapped]
+        public Resistance BaseResistance { get; set; } = new();
+
+        [NotMapped]
+        public Resistance BonusResistance { get; set; } = new();
+
+        [NotMapped]
+        public Resistance TotalResistance
+        {
+            get
+            {
+                var total = new Resistance
+                {
+                    PhysicalDefense = BaseResistance.PhysicalDefense + BonusResistance.PhysicalDefense,
+                    MagicDefense = BaseResistance.MagicDefense + BonusResistance.MagicDefense,
+                    DodgeChance = BaseResistance.DodgeChance + BonusResistance.DodgeChance
+                };
+
+                foreach (var kvp in BaseResistance.DamageResistances)
+                {
+                    if (total.DamageResistances.ContainsKey(kvp.Key))
+                        total.DamageResistances[kvp.Key] += kvp.Value;
+                    else
+                        total.DamageResistances[kvp.Key] = kvp.Value;
+                }
+
+                foreach (var kvp in BonusResistance.DamageResistances)
+                {
+                    if (total.DamageResistances.ContainsKey(kvp.Key))
+                        total.DamageResistances[kvp.Key] += kvp.Value;
+                    else
+                        total.DamageResistances[kvp.Key] = kvp.Value;
+                }
+
+                foreach (var kvp in BaseResistance.StatusResistances)
+                {
+                    if (total.StatusResistances.ContainsKey(kvp.Key))
+                        total.StatusResistances[kvp.Key] += kvp.Value;
+                    else
+                        total.StatusResistances[kvp.Key] = kvp.Value;
+                }
+
+                foreach (var kvp in BonusResistance.StatusResistances)
+                {
+                    if (total.StatusResistances.ContainsKey(kvp.Key))
+                        total.StatusResistances[kvp.Key] += kvp.Value;
+                    else
+                        total.StatusResistances[kvp.Key] = kvp.Value;
+                }
+
+                return total;
+            }
+        }
+
+        // ========== КРАФТ, РАНГ, ДОСТИЖЕНИЯ ==========
         public int CraftSkillLevel { get; set; } = 0;
         public string Rank { get; set; } = "Новичок";
         public string AchievementsJson { get; set; } = "[]";
@@ -48,7 +146,7 @@ namespace GameAuthAPI.Models
             set => AchievementsJson = JsonSerializer.Serialize(value);
         }
 
-        // ========== ШИФРОВАННЫЕ ПОЛЯ (опционально) ==========
+        // ========== ШИФРОВАННЫЕ ПОЛЯ (ОПЦИОНАЛЬНО) ==========
         public string? EmailEncrypted { get; set; }
         public string? PhoneEncrypted { get; set; }
         public string? AddressEncrypted { get; set; }
@@ -77,15 +175,16 @@ namespace GameAuthAPI.Models
         [NotMapped]
         public Dictionary<string, int> Resources { get; set; } = new();
 
-        public List<PlayerGuild> PlayerGuilds { get; set; } = new List<PlayerGuild>();
+        // ========== НАВИГАЦИОННЫЕ СВОЙСТВА ==========
+        public List<PlayerGuild> PlayerGuilds { get; set; } = new();
         public List<PlayerSkill> PlayerSkills { get; set; } = new();
 
-        // PvP статистика
         public int PvP_Wins { get; set; } = 0;
         public int PvP_Losses { get; set; } = 0;
         public int PvP_Kills { get; set; } = 0;
         public int PvP_Deaths { get; set; } = 0;
 
+        // ========== ШИФРОВАНИЕ ==========
         private static EncryptionService? _encryptionService;
 
         private EncryptionService GetEncryptionService()
@@ -117,6 +216,7 @@ namespace GameAuthAPI.Models
         private readonly PasswordService _passwordService;
         private readonly ILogger<Player> _logger;
 
+        // ========== КОНСТРУКТОРЫ ==========
         public Player(string name, string password, PasswordService passwordService, ILogger<Player> logger)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -135,6 +235,15 @@ namespace GameAuthAPI.Models
 
             Name = name;
             PasswordHash = _passwordService.HashPassword(password);
+
+            // Инициализация новых полей
+            CraftSkillLevel = 0;
+            Rank = "Новичок";
+            AchievementsJson = "[]";
+            BaseResistance = new Resistance();
+            BonusResistance = new Resistance();
+            Experience = 0;
+            ExperienceToNextLevel = 100;
         }
 
         public Player()

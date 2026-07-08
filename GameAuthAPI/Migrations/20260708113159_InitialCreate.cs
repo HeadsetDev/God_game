@@ -12,6 +12,25 @@ namespace GameAuthAPI.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "AuctionLots",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    ItemName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    StartingPrice = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    Seller = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    EndTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    WinnerId = table.Column<int>(type: "int", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AuctionLots", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Guilds",
                 columns: table => new
                 {
@@ -67,6 +86,30 @@ namespace GameAuthAPI.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Skills",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Type = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Damage = table.Column<int>(type: "int", nullable: false),
+                    ManaCost = table.Column<int>(type: "int", nullable: false),
+                    Cooldown = table.Column<int>(type: "int", nullable: false),
+                    RequiredLevel = table.Column<int>(type: "int", nullable: false),
+                    Effect = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DamageType = table.Column<int>(type: "int", nullable: false),
+                    StatusEffect = table.Column<int>(type: "int", nullable: true),
+                    StatusChance = table.Column<int>(type: "int", nullable: false),
+                    RequiredStance = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Skills", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "LocationConnections",
                 columns: table => new
                 {
@@ -98,6 +141,9 @@ namespace GameAuthAPI.Migrations
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Health = table.Column<int>(type: "int", nullable: false),
                     Damage = table.Column<int>(type: "int", nullable: false),
+                    Defense = table.Column<int>(type: "int", nullable: false),
+                    ExperienceReward = table.Column<int>(type: "int", nullable: false),
+                    Level = table.Column<int>(type: "int", nullable: false),
                     SpawnLocationId = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
@@ -144,8 +190,35 @@ namespace GameAuthAPI.Migrations
                     Level = table.Column<int>(type: "int", nullable: false),
                     Coins = table.Column<int>(type: "int", nullable: false),
                     Crystals = table.Column<int>(type: "int", nullable: false),
+                    Experience = table.Column<int>(type: "int", nullable: false),
+                    ExperienceToNextLevel = table.Column<int>(type: "int", nullable: false),
                     CurrentLocationId = table.Column<int>(type: "int", nullable: false),
-                    PlayerKills = table.Column<int>(type: "int", nullable: false)
+                    PlayerKills = table.Column<int>(type: "int", nullable: false),
+                    Class = table.Column<int>(type: "int", nullable: false),
+                    ActiveStance = table.Column<int>(type: "int", nullable: false),
+                    LastStanceSwitch = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    BaseStrength = table.Column<int>(type: "int", nullable: false),
+                    BaseAgility = table.Column<int>(type: "int", nullable: false),
+                    BaseIntelligence = table.Column<int>(type: "int", nullable: false),
+                    BaseVitality = table.Column<int>(type: "int", nullable: false),
+                    BaseWillpower = table.Column<int>(type: "int", nullable: false),
+                    BasePerception = table.Column<int>(type: "int", nullable: false),
+                    StrengthBonus = table.Column<int>(type: "int", nullable: false),
+                    AgilityBonus = table.Column<int>(type: "int", nullable: false),
+                    IntelligenceBonus = table.Column<int>(type: "int", nullable: false),
+                    VitalityBonus = table.Column<int>(type: "int", nullable: false),
+                    WillpowerBonus = table.Column<int>(type: "int", nullable: false),
+                    PerceptionBonus = table.Column<int>(type: "int", nullable: false),
+                    CraftSkillLevel = table.Column<int>(type: "int", nullable: false),
+                    Rank = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    AchievementsJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    EmailEncrypted = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    PhoneEncrypted = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    AddressEncrypted = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    PvP_Wins = table.Column<int>(type: "int", nullable: false),
+                    PvP_Losses = table.Column<int>(type: "int", nullable: false),
+                    PvP_Kills = table.Column<int>(type: "int", nullable: false),
+                    PvP_Deaths = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -166,7 +239,7 @@ namespace GameAuthAPI.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     SenderId = table.Column<int>(type: "int", nullable: false),
                     ReceiverId = table.Column<int>(type: "int", nullable: true),
-                    Message = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    MessageEncrypted = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Timestamp = table.Column<DateTime>(type: "datetime2", nullable: false),
                     Type = table.Column<int>(type: "int", nullable: false)
                 },
@@ -182,6 +255,37 @@ namespace GameAuthAPI.Migrations
                     table.ForeignKey(
                         name: "FK_ChatMessages_Players_SenderId",
                         column: x => x.SenderId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Duels",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    ChallengerId = table.Column<int>(type: "int", nullable: false),
+                    OpponentId = table.Column<int>(type: "int", nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    FinishedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    WinnerId = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Duels", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Duels_Players_ChallengerId",
+                        column: x => x.ChallengerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Duels_Players_OpponentId",
+                        column: x => x.OpponentId,
                         principalTable: "Players",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -208,6 +312,31 @@ namespace GameAuthAPI.Migrations
                         name: "FK_PlayerGuilds_Players_PlayerId",
                         column: x => x.PlayerId,
                         principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlayerSkills",
+                columns: table => new
+                {
+                    PlayerId = table.Column<int>(type: "int", nullable: false),
+                    SkillId = table.Column<int>(type: "int", nullable: false),
+                    IsLearned = table.Column<bool>(type: "bit", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerSkills", x => new { x.PlayerId, x.SkillId });
+                    table.ForeignKey(
+                        name: "FK_PlayerSkills_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_PlayerSkills_Skills_SkillId",
+                        column: x => x.SkillId,
+                        principalTable: "Skills",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -341,6 +470,16 @@ namespace GameAuthAPI.Migrations
                 column: "SenderId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Duels_ChallengerId",
+                table: "Duels",
+                column: "ChallengerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Duels_OpponentId",
+                table: "Duels",
+                column: "OpponentId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Items_Name",
                 table: "Items",
                 column: "Name",
@@ -393,6 +532,11 @@ namespace GameAuthAPI.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_PlayerSkills_SkillId",
+                table: "PlayerSkills",
+                column: "SkillId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlayerTrades_Player1Id",
                 table: "PlayerTrades",
                 column: "Player1Id");
@@ -423,7 +567,13 @@ namespace GameAuthAPI.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "AuctionLots");
+
+            migrationBuilder.DropTable(
                 name: "ChatMessages");
+
+            migrationBuilder.DropTable(
+                name: "Duels");
 
             migrationBuilder.DropTable(
                 name: "LocationConnections");
@@ -441,6 +591,9 @@ namespace GameAuthAPI.Migrations
                 name: "PlayerItems");
 
             migrationBuilder.DropTable(
+                name: "PlayerSkills");
+
+            migrationBuilder.DropTable(
                 name: "QuestParticipants");
 
             migrationBuilder.DropTable(
@@ -451,6 +604,9 @@ namespace GameAuthAPI.Migrations
 
             migrationBuilder.DropTable(
                 name: "PlayerTrades");
+
+            migrationBuilder.DropTable(
+                name: "Skills");
 
             migrationBuilder.DropTable(
                 name: "Quests");

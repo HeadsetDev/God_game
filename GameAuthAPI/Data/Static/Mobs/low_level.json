@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "name": "Гоблин-воин",
+    "health": 80,
+    "damage": 12,
+    "defense": 3,
+    "experienceReward": 15,
+    "level": 1
+  },
+  {
+    "id": 2,
+    "name": "Лесной волк",
+    "health": 100,
+    "damage": 18,
+    "defense": 5,
+    "experienceReward": 20,
+    "level": 2
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": 4,
+    "name": "Меч охотника на драконов",
+    "rarity": 1,
+    "type": 3,
+    "slot": 0,
+    "stats": {
+      "AttackPower": 25,
+      "CriticalChance": 10
+    },
+    "canBeUpgraded": true,
+    "maxUpgradeLevel": 10
+  },
+  {
+    "id": 5,
+    "name": "Кольцо силы",
+    "rarity": 1,
+    "type": 0,
+    "slot": 2,
+    "stats": {
+      "AttackPower": 8,
+      "CriticalChance": 5
+    }
+  }
+]

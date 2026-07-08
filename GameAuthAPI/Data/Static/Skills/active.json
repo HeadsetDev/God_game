@@ -1,0 +1,24 @@
+[
+  {
+    "id": 1,
+    "name": "Огненный шар",
+    "description": "Наносит огненный урон врагу.",
+    "type": "Active",
+    "damage": 50,
+    "manaCost": 20,
+    "cooldown": 5,
+    "requiredLevel": 1,
+    "effect": "{\"type\":\"fire\",\"damage\":50}"
+  },
+  {
+    "id": 2,
+    "name": "Молния",
+    "description": "Бьёт молнией, нанося 70 урона.",
+    "type": "Active",
+    "damage": 70,
+    "manaCost": 30,
+    "cooldown": 8,
+    "requiredLevel": 5,
+    "effect": "{\"type\":\"lightning\",\"damage\":70}"
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "id": 5,
+    "name": "Орк-берсерк",
+    "health": 350,
+    "damage": 35,
+    "defense": 15,
+    "experienceReward": 50,
+    "level": 10
+  }
+]

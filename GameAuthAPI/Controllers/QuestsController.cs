@@ -15,75 +15,57 @@ namespace GameAuthAPI.Controllers
     {
         private readonly GameDbContext _context;
         private readonly IMapper _mapper;
-        private readonly RedisCacheService _cache;
+        private readonly StaticDataService _staticDataService;
 
-        public QuestsController(GameDbContext context, IMapper mapper, RedisCacheService cache)
+        public QuestsController(GameDbContext context, IMapper mapper, StaticDataService staticDataService)
         {
             _context = context;
             _mapper = mapper;
-            _cache = cache;
+            _staticDataService = staticDataService;
         }
 
-        // ===================== ОСНОВНЫЕ МЕТОДЫ =====================
+        // ===================== ПОЛУЧЕНИЕ ВСЕХ КВЕСТОВ ИЗ JSON =====================
 
         [HttpGet]
         public async Task<IActionResult> GetQuests()
         {
-            const string cacheKey = "quests_all";
-            var quests = await _cache.GetAsync<List<QuestDto>>(cacheKey);
-
-            if (quests == null)
-            {
-                quests = await _context.Quests
-                    .Select(q => _mapper.Map<QuestDto>(q))
-                    .ToListAsync();
-                await _cache.SetAsync(cacheKey, quests, TimeSpan.FromMinutes(10));
-            }
-
-            return Ok(ApiResponse<List<QuestDto>>.Ok(quests ?? new List<QuestDto>()));
+            var quests = await _staticDataService.GetQuestsAsync();
+            var questDtos = quests?.Select(q => _mapper.Map<QuestDto>(q)).ToList() ?? new List<QuestDto>();
+            return Ok(ApiResponse<List<QuestDto>>.Ok(questDtos));
         }
+
+        // ===================== ПОЛУЧЕНИЕ КВЕСТА ПО ID =====================
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetQuest(int id)
         {
-            var cacheKey = $"quest_{id}";
-            var quest = await _cache.GetAsync<QuestDto>(cacheKey);
-
+            var quests = await _staticDataService.GetQuestsAsync();
+            var quest = quests?.FirstOrDefault(q => q.Id == id);
             if (quest == null)
-            {
-                var dbQuest = await _context.Quests.FindAsync(id);
-                if (dbQuest == null)
-                    return NotFound(ApiResponse<object>.Fail("Квест не найден."));
+                return NotFound(ApiResponse<object>.Fail("Квест не найден."));
 
-                quest = _mapper.Map<QuestDto>(dbQuest);
-                await _cache.SetAsync(cacheKey, quest, TimeSpan.FromMinutes(10));
-            }
-
-            return Ok(ApiResponse<QuestDto>.Ok(quest));
+            var questDto = _mapper.Map<QuestDto>(quest);
+            return Ok(ApiResponse<QuestDto>.Ok(questDto));
         }
+
+        // ===================== ПОЛУЧЕНИЕ КВЕСТОВ ИГРОКА (ИЗ БД) =====================
 
         [HttpGet("player/{playerId}")]
         [Authorize]
         public async Task<IActionResult> GetPlayerQuests(int playerId)
         {
-            var cacheKey = $"player_quests_{playerId}";
-            var quests = await _cache.GetAsync<List<QuestDto>>(cacheKey);
+            var player = await _context.Players
+                .Include(p => p.Quests)
+                .FirstOrDefaultAsync(p => p.Id == playerId);
 
-            if (quests == null)
-            {
-                var player = await _context.Players
-                    .Include(p => p.Quests)
-                    .FirstOrDefaultAsync(p => p.Id == playerId);
+            if (player == null)
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
 
-                if (player == null)
-                    return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
-
-                quests = player.Quests.Select(q => _mapper.Map<QuestDto>(q)).ToList();
-                await _cache.SetAsync(cacheKey, quests, TimeSpan.FromMinutes(5));
-            }
-
-            return Ok(ApiResponse<List<QuestDto>>.Ok(quests ?? new List<QuestDto>()));
+            var quests = player.Quests.Select(q => _mapper.Map<QuestDto>(q)).ToList();
+            return Ok(ApiResponse<List<QuestDto>>.Ok(quests));
         }
+
+        // ===================== СОЗДАНИЕ КВЕСТА (ДЛЯ АДМИНА, В БД) =====================
 
         [HttpPost]
         [Authorize(Policy = "AdminOnly")]
@@ -96,12 +78,12 @@ namespace GameAuthAPI.Controllers
             _context.Quests.Add(quest);
             await _context.SaveChangesAsync();
 
-            await _cache.RemoveAsync("quests_all");
             var createdQuestDto = _mapper.Map<QuestDto>(quest);
-
             return CreatedAtAction(nameof(GetQuest), new { id = createdQuestDto.Id },
                 ApiResponse<QuestDto>.Ok(createdQuestDto, "Квест создан."));
         }
+
+        // ===================== ОБНОВЛЕНИЕ КВЕСТА (ДЛЯ АДМИНА) =====================
 
         [HttpPut("{id}")]
         [Authorize(Policy = "AdminOnly")]
@@ -120,8 +102,6 @@ namespace GameAuthAPI.Controllers
             try
             {
                 await _context.SaveChangesAsync();
-                await _cache.RemoveAsync($"quest_{id}");
-                await _cache.RemoveAsync("quests_all");
                 return Ok(ApiResponse<object>.Ok(null, "Квест обновлён."));
             }
             catch (DbUpdateConcurrencyException)
@@ -131,6 +111,8 @@ namespace GameAuthAPI.Controllers
                 throw;
             }
         }
+
+        // ===================== УДАЛЕНИЕ КВЕСТА =====================
 
         [HttpDelete("{id}")]
         [Authorize(Policy = "AdminOnly")]
@@ -143,9 +125,6 @@ namespace GameAuthAPI.Controllers
             _context.Quests.Remove(quest);
             await _context.SaveChangesAsync();
 
-            await _cache.RemoveAsync($"quest_{id}");
-            await _cache.RemoveAsync("quests_all");
-
             return Ok(ApiResponse<object>.Ok(null, "Квест удалён."));
         }
 
@@ -155,7 +134,8 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> StartGroupQuest([FromBody] StartGroupQuestDto dto)
         {
-            var quest = await _context.Quests.FindAsync(dto.QuestId);
+            var quests = await _staticDataService.GetQuestsAsync();
+            var quest = quests?.FirstOrDefault(q => q.Id == dto.QuestId);
             if (quest == null)
                 return NotFound(ApiResponse<object>.Fail("Квест не найден."));
 
@@ -180,9 +160,6 @@ namespace GameAuthAPI.Controllers
             }
 
             await _context.SaveChangesAsync();
-            await _cache.RemoveAsync($"quest_{quest.Id}");
-            await _cache.RemoveAsync("quests_all");
-
             return Ok(ApiResponse<object>.Ok(null, $"Групповой квест {quest.Name} запущен."));
         }
 
@@ -190,22 +167,27 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> CompleteGroupQuest([FromBody] CompleteGroupQuestDto dto)
         {
-            var quest = await _context.Quests
-                .Include(q => q.QuestParticipants)
-                .FirstOrDefaultAsync(q => q.Id == dto.QuestId);
-
+            var quests = await _staticDataService.GetQuestsAsync();
+            var quest = quests?.FirstOrDefault(q => q.Id == dto.QuestId);
             if (quest == null)
                 return NotFound(ApiResponse<object>.Fail("Квест не найден."));
 
-            if (!quest.IsGroupQuest || !quest.QuestParticipants.Any())
-                return BadRequest(ApiResponse<object>.Fail("Нет участников для квеста."));
+            if (!quest.IsGroupQuest)
+                return BadRequest(ApiResponse<object>.Fail("Это не групповой квест."));
+
+            var participants = await _context.QuestParticipants
+                .Where(qp => qp.QuestId == quest.Id)
+                .ToListAsync();
+
+            if (!participants.Any())
+                return BadRequest(ApiResponse<object>.Fail("Нет участников для этого квеста."));
 
             var allCompleted = true;
-            var participants = new List<Player>();
+            var players = new List<Player>();
 
-            foreach (var participant in quest.QuestParticipants)
+            foreach (var p in participants)
             {
-                var player = await _context.Players.FindAsync(participant.PlayerId);
+                var player = await _context.Players.FindAsync(p.PlayerId);
                 if (player == null) continue;
 
                 if (!CheckQuestConditions(player, quest))
@@ -213,30 +195,21 @@ namespace GameAuthAPI.Controllers
                     allCompleted = false;
                     break;
                 }
-                participants.Add(player);
+                players.Add(player);
             }
 
             if (!allCompleted)
                 return BadRequest(ApiResponse<object>.Fail("Не все участники выполнили условия."));
 
-            foreach (var player in participants)
+            foreach (var player in players)
             {
                 player.Coins += quest.Reward;
-                if (!player.Quests.Contains(quest))
-                    player.Quests.Add(quest);
             }
 
-            quest.IsCompleted = true;
+            _context.QuestParticipants.RemoveRange(participants);
             await _context.SaveChangesAsync();
 
-            foreach (var player in participants)
-                await _cache.RemoveAsync($"player_quests_{player.Id}");
-
-            await _cache.RemoveAsync($"quest_{quest.Id}");
-            await _cache.RemoveAsync("quests_all");
-
-            return Ok(ApiResponse<object>.Ok(null,
-                $"Квест {quest.Name} выполнен! Все получили {quest.Reward} монет."));
+            return Ok(ApiResponse<object>.Ok(null, $"Квест {quest.Name} выполнен! Все получили {quest.Reward} монет."));
         }
 
         private bool CheckQuestConditions(Player player, Quest quest)

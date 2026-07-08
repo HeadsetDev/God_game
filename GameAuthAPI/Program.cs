@@ -26,6 +26,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSignalR();
 builder.Services.AddMemoryCache();
+builder.Services.AddScoped<PasswordService>();
 builder.Services.AddScoped<RedisCacheService>();
 builder.Services.AddScoped<EncryptionService>();
 builder.Services.AddScoped<SecurityLogger>();
