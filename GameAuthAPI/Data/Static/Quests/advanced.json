@@ -1,0 +1,20 @@
+[
+  {
+    "id": 10,
+    "name": "Охота на орков",
+    "description": "Уничтожьте 20 орков в горном перевале.",
+    "reward": 150,
+    "conditionsJson": "{\"MonstersKilled\":20}",
+    "isGroupQuest": false,
+    "requiredPlayers": 0
+  },
+  {
+    "id": 11,
+    "name": "Сбор редких трав",
+    "description": "Соберите 10 светящихся грибов в пещере.",
+    "reward": 100,
+    "conditionsJson": "{\"ItemsCollected\":10,\"ItemType\":\"Mushroom\"}",
+    "isGroupQuest": false,
+    "requiredPlayers": 0
+  }
+]

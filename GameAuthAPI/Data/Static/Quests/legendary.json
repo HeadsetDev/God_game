@@ -1,0 +1,20 @@
+[
+  {
+    "id": 30,
+    "name": "Повелитель стихий",
+    "description": "Одолейте всех четырёх элементалей в их логовах.",
+    "reward": 2000,
+    "conditionsJson": "{\"ElementalsKilled\":4}",
+    "isGroupQuest": false,
+    "requiredPlayers": 0
+  },
+  {
+    "id": 31,
+    "name": "Кубок бессмертных",
+    "description": "Пройдите испытание и получите кубок.",
+    "reward": 3000,
+    "conditionsJson": "{\"TrialsCompleted\":5}",
+    "isGroupQuest": true,
+    "requiredPlayers": 5
+  }
+]

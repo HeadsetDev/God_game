@@ -5,8 +5,6 @@ namespace GameAuthAPI.Models
 {
     public class Resistance
     {
-        public int Id { get; set; }
-
         [NotMapped]
         public Dictionary<DamageType, int> DamageResistances { get; set; } = new();
 

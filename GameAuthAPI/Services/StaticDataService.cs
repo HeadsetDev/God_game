@@ -9,25 +9,29 @@ namespace GameAuthAPI.Services
         private readonly IDistributedCache _cache;
         private readonly ILogger<StaticDataService> _logger;
         private readonly string _staticDataPath;
+        private readonly JsonSerializerOptions _jsonOptions;
 
         public StaticDataService(IDistributedCache cache, ILogger<StaticDataService> logger, IWebHostEnvironment env)
         {
             _cache = cache;
             _logger = logger;
             _staticDataPath = Path.Combine(env.ContentRootPath, "Data", "Static");
-        }
 
-        // ===================== ВСПОМОГАТЕЛЬНЫЙ МЕТОД =====================
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true, // <-- ИГНОРИРУЕМ РЕГИСТР
+                WriteIndented = true
+            };
+        }
 
         private async Task<List<T>> LoadFromFolderAsync<T>(string folderName, string cacheKey, TimeSpan? expiration = null) where T : class
         {
-            // 1. Пытаемся взять из кэша
             var cached = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cached))
             {
                 try
                 {
-                    return JsonSerializer.Deserialize<List<T>>(cached) ?? new List<T>();
+                    return JsonSerializer.Deserialize<List<T>>(cached, _jsonOptions) ?? new List<T>();
                 }
                 catch (JsonException ex)
                 {
@@ -56,7 +60,13 @@ namespace GameAuthAPI.Services
                 try
                 {
                     var json = await File.ReadAllTextAsync(file);
-                    var batch = JsonSerializer.Deserialize<List<T>>(json);
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        _logger.LogWarning("Файл {File} пустой, пропускаем.", file);
+                        continue;
+                    }
+
+                    var batch = JsonSerializer.Deserialize<List<T>>(json, _jsonOptions);
                     if (batch != null)
                         result.AddRange(batch);
                     else
@@ -76,14 +86,12 @@ namespace GameAuthAPI.Services
                 else
                     options.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60);
 
-                var serialized = JsonSerializer.Serialize(result);
+                var serialized = JsonSerializer.Serialize(result, _jsonOptions);
                 await _cache.SetStringAsync(cacheKey, serialized, options);
             }
 
             return result;
         }
-
-        // ===================== ПУБЛИЧНЫЕ МЕТОДЫ =====================
 
         public async Task<List<Item>> GetItemsAsync()
             => await LoadFromFolderAsync<Item>("Items", "static_items", TimeSpan.FromMinutes(60));
@@ -102,8 +110,6 @@ namespace GameAuthAPI.Services
 
         public async Task<List<CraftRecipe>> GetCraftRecipesAsync()
             => await LoadFromFolderAsync<CraftRecipe>("CraftRecipes", "static_craft_recipes", TimeSpan.FromMinutes(60));
-
-        // ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ПОИСКА =====================
 
         public async Task<Item?> GetItemByIdAsync(int id)
         {
@@ -156,7 +162,6 @@ namespace GameAuthAPI.Services
                     case "achievement":
                         if (req.AdditionalData != null)
                         {
-                            // Проверяем, есть ли у игрока достижение с таким ID
                             if (!player.Achievements.Contains(req.Value))
                                 return false;
                         }

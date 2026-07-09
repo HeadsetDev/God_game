@@ -1,19 +1,10 @@
 [
   {
     "id": 1,
-    "name": "Беспорядки в лесу",
-    "description": "Убить 5 гоблинов, которые терроризируют фермеров.",
-    "reward": 30,
+    "name": "Убить 5 гоблинов",
+    "description": "Истребите 5 гоблинов в тёмном лесу.",
+    "reward": 50,
     "conditionsJson": "{\"MonstersKilled\":5}",
-    "isGroupQuest": false,
-    "requiredPlayers": 0
-  },
-  {
-    "id": 2,
-    "name": "Кожа для брони",
-    "description": "Собрать 10 шкур волков.",
-    "reward": 25,
-    "conditionsJson": "{\"ItemsCollected\":10,\"ItemType\":\"WolfSkin\"}",
     "isGroupQuest": false,
     "requiredPlayers": 0
   }

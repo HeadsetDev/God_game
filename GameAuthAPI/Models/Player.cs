@@ -26,8 +26,6 @@ namespace GameAuthAPI.Models
         public int Crystals { get; set; }
         public int Experience { get; set; }
         public int ExperienceToNextLevel { get; set; } = 100;
-        public int Health => MaxHealth;
-        public int Defense => TotalResistance.TotalPhysicalDefense;
 
         public int CurrentLocationId { get; set; }
         public Location CurrentLocation { get; set; } = null!;
@@ -77,7 +75,7 @@ namespace GameAuthAPI.Models
         [NotMapped]
         public int MaxMana => 50 + TotalIntelligence * 5 + TotalWillpower * 2;
 
-        // ========== РЕЗИСТЫ ==========
+        // ========== РЕЗИСТЫ (НЕ СОХРАНЯЮТСЯ В БД) ==========
         [NotMapped]
         public Resistance BaseResistance { get; set; } = new();
 
@@ -146,7 +144,7 @@ namespace GameAuthAPI.Models
             set => AchievementsJson = JsonSerializer.Serialize(value);
         }
 
-        // ========== ШИФРОВАННЫЕ ПОЛЯ (ОПЦИОНАЛЬНО) ==========
+        // ========== ШИФРОВАННЫЕ ПОЛЯ ==========
         public string? EmailEncrypted { get; set; }
         public string? PhoneEncrypted { get; set; }
         public string? AddressEncrypted { get; set; }
@@ -244,6 +242,9 @@ namespace GameAuthAPI.Models
             BonusResistance = new Resistance();
             Experience = 0;
             ExperienceToNextLevel = 100;
+
+            Class = ClassType.Warrior;
+            ActiveStance = StanceType.SwordAndShield;
         }
 
         public Player()

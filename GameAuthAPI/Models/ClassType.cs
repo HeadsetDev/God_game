@@ -2,9 +2,9 @@ namespace GameAuthAPI.Models
 {
     public enum ClassType
     {
-        Warrior,
-        Archer,
-        Mage,
-        Bard
+        Warrior = 0,
+        Archer = 1,
+        Mage = 2,
+        Bard = 3
     }
 }

@@ -6,6 +6,7 @@ using GameAuthAPI.Services;
 using Microsoft.EntityFrameworkCore;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace GameAuthAPI.Controllers
 {
@@ -16,12 +17,14 @@ namespace GameAuthAPI.Controllers
         private readonly GameDbContext _context;
         private readonly IMapper _mapper;
         private readonly RedisCacheService _cache;
+        private readonly StanceService _stanceService;
 
-        public PlayersController(GameDbContext context, IMapper mapper, RedisCacheService cache)
+        public PlayersController(GameDbContext context, IMapper mapper, RedisCacheService cache, StanceService stanceService)
         {
             _context = context;
             _mapper = mapper;
             _cache = cache;
+            _stanceService = stanceService;
         }
 
         // ===================== ОСНОВНЫЕ МЕТОДЫ =====================
@@ -169,7 +172,6 @@ namespace GameAuthAPI.Controllers
             if (item == null)
                 return NotFound(ApiResponse<object>.Fail("Предмет не найден."));
 
-            // Снимаем все предметы того же слота
             var equippedItems = await _context.PlayerItems
                 .Where(pi => pi.PlayerId == id && pi.IsEquipped && pi.Item.Slot == item.Slot)
                 .ToListAsync();
@@ -258,6 +260,85 @@ namespace GameAuthAPI.Controllers
             }
 
             return Ok(ApiResponse<object>.Ok(stats));
+        }
+
+        // ===================== УПРАВЛЕНИЕ КЛАССОМ =====================
+
+        [HttpGet("me/class")]
+        [Authorize]
+        public async Task<IActionResult> GetMyClass()
+        {
+            var playerIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (playerIdClaim == null)
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            var playerId = int.Parse(playerIdClaim.Value);
+            var player = await _context.Players.FindAsync(playerId);
+            if (player == null)
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
+
+            return Ok(ApiResponse<object>.Ok(new
+            {
+                player.Class,
+                player.ActiveStance,
+                CanSwitchStance = player.CanSwitchStance,
+                Stances = GetStancesForClass(player.Class)
+            }));
+        }
+
+        [HttpPost("me/class")]
+        [Authorize]
+        public async Task<IActionResult> SetMyClass([FromBody] ClassType newClass)
+        {
+            var playerIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (playerIdClaim == null)
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            var playerId = int.Parse(playerIdClaim.Value);
+            var player = await _context.Players.FindAsync(playerId);
+            if (player == null)
+                return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
+
+            player.Class = newClass;
+            player.ActiveStance = GetDefaultStanceForClass(newClass);
+            player.LastStanceSwitch = DateTime.MinValue;
+
+            await _context.SaveChangesAsync();
+
+            await _cache.RemoveAsync($"player_{playerId}");
+            await _cache.RemoveAsync("players_all");
+
+            return Ok(ApiResponse<object>.Ok(new
+            {
+                player.Class,
+                player.ActiveStance
+            }, $"Класс изменён на {newClass}."));
+        }
+
+        // ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =====================
+
+        private List<StanceType> GetStancesForClass(ClassType classType)
+        {
+            return classType switch
+            {
+                ClassType.Warrior => new List<StanceType> { StanceType.SwordAndShield, StanceType.DualWield },
+                ClassType.Archer => new List<StanceType> { StanceType.Bow, StanceType.Assassin },
+                ClassType.Mage => new List<StanceType> { StanceType.Death, StanceType.Life },
+                ClassType.Bard => new List<StanceType> { StanceType.Support, StanceType.Combat },
+                _ => new List<StanceType>()
+            };
+        }
+
+        private StanceType GetDefaultStanceForClass(ClassType classType)
+        {
+            return classType switch
+            {
+                ClassType.Warrior => StanceType.SwordAndShield,
+                ClassType.Archer => StanceType.Bow,
+                ClassType.Mage => StanceType.Death,
+                ClassType.Bard => StanceType.Support,
+                _ => StanceType.SwordAndShield
+            };
         }
     }
 }

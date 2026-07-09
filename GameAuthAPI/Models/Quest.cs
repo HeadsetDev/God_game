@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using System.ComponentModel.DataAnnotations.Schema;
+
 namespace GameAuthAPI.Models
 {
     /// <summary>
@@ -36,18 +37,38 @@ namespace GameAuthAPI.Models
         public bool IsCompleted { get; set; } = false;
 
         /// <summary>
-        /// Условия выполнения квеста (десериализованные).
+        /// Является ли квест групповым.
         /// </summary>
-        
-        public bool IsGroupQuest { get; set; } // Новое поле: является ли квест групповым
-        public int RequiredPlayers { get; set; } // Новое поле: количество игроков для группового квеста
+        public bool IsGroupQuest { get; set; }
+
+        /// <summary>
+        /// Количество игроков для группового квеста.
+        /// </summary>
+        public int RequiredPlayers { get; set; }
 
         // Навигационные свойства
         public List<QuestParticipant> QuestParticipants { get; set; } = new List<QuestParticipant>();
-        [NotMapped] // Указываем EF игнорировать это свойство
+
+        /// <summary>
+        /// Условия выполнения квеста (десериализованные).
+        /// </summary>
+        [NotMapped]
         public Dictionary<string, int> Conditions
         {
-            get => JsonSerializer.Deserialize<Dictionary<string, int>>(ConditionsJson) ?? new Dictionary<string, int>();
+            get
+            {
+                if (string.IsNullOrEmpty(ConditionsJson))
+                    return new Dictionary<string, int>();
+
+                try
+                {
+                    return JsonSerializer.Deserialize<Dictionary<string, int>>(ConditionsJson) ?? new Dictionary<string, int>();
+                }
+                catch
+                {
+                    return new Dictionary<string, int>();
+                }
+            }
             set => ConditionsJson = JsonSerializer.Serialize(value);
         }
     }

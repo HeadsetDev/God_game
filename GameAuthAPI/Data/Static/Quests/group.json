@@ -1,0 +1,20 @@
+[
+  {
+    "id": 20,
+    "name": "Зачистка гнезда дракона",
+    "description": "Соберите группу из 4 игроков и уничтожьте дракона.",
+    "reward": 800,
+    "conditionsJson": "{\"MonstersKilled\":1,\"BossKilled\":true}",
+    "isGroupQuest": true,
+    "requiredPlayers": 4
+  },
+  {
+    "id": 21,
+    "name": "Оборона крепости",
+    "description": "Отразите атаку орков (нужно 3 игрока).",
+    "reward": 500,
+    "conditionsJson": "{\"MonstersKilled\":50}",
+    "isGroupQuest": true,
+    "requiredPlayers": 3
+  }
+]
