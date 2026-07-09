@@ -6,6 +6,7 @@ using GameAuthAPI.Services;
 using Microsoft.EntityFrameworkCore;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace GameAuthAPI.Controllers
 {
@@ -24,6 +25,40 @@ namespace GameAuthAPI.Controllers
             _cache = cache;
         }
 
+        // Вспомогательный метод проверки, что текущий пользователь является участником сделки
+        private IActionResult? EnsureTradeParticipant(int tradeId, int playerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            if (authenticatedPlayerId != playerId)
+                return Forbid();
+
+            return null;
+        }
+
+        // Вспомогательный метод проверки, что текущий пользователь является участником сделки (по Id сделки)
+        private async Task<IActionResult?> EnsureTradeParticipantAsync(int tradeId, int playerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            if (authenticatedPlayerId != playerId)
+                return Forbid();
+
+            var trade = await _context.PlayerTrades
+                .FirstOrDefaultAsync(t => t.Id == tradeId);
+            if (trade == null)
+                return NotFound(ApiResponse<object>.Fail("Сделка не найдена."));
+
+            if (trade.Player1Id != playerId && trade.Player2Id != playerId)
+                return Forbid();
+
+            return null;
+        }
+
         // ===================== ИНИЦИАЦИЯ СДЕЛКИ =====================
 
         [HttpPost("initiate")]
@@ -32,6 +67,14 @@ namespace GameAuthAPI.Controllers
         {
             if (tradeRequest == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные для инициирования сделки не предоставлены."));
+
+            // Проверка, что текущий пользователь является player1
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            if (authenticatedPlayerId != tradeRequest.Player1Id)
+                return Forbid();
 
             if (tradeRequest.Player1Id == tradeRequest.Player2Id)
                 return BadRequest(ApiResponse<object>.Fail("Нельзя торговать с самим собой."));
@@ -42,7 +85,6 @@ namespace GameAuthAPI.Controllers
             if (player1 == null || player2 == null)
                 return NotFound(ApiResponse<object>.Fail("Один из игроков не найден."));
 
-            // Проверяем, нет ли уже активной сделки между этими игроками
             var existingTrade = await _context.PlayerTrades
                 .FirstOrDefaultAsync(t =>
                     (t.Player1Id == tradeRequest.Player1Id && t.Player2Id == tradeRequest.Player2Id ||
@@ -64,7 +106,6 @@ namespace GameAuthAPI.Controllers
             _context.PlayerTrades.Add(trade);
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"trade_{trade.Id}");
             await _cache.RemoveAsync($"player_trades_{tradeRequest.Player1Id}");
             await _cache.RemoveAsync($"player_trades_{tradeRequest.Player2Id}");
@@ -81,6 +122,10 @@ namespace GameAuthAPI.Controllers
         {
             if (confirmTrade == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные для подтверждения не предоставлены."));
+
+            var authError = await EnsureTradeParticipantAsync(confirmTrade.TradeId, confirmTrade.PlayerId);
+            if (authError != null)
+                return authError;
 
             var trade = await _context.PlayerTrades
                 .Include(t => t.Player1Items)
@@ -100,10 +145,8 @@ namespace GameAuthAPI.Controllers
             else
                 return BadRequest(ApiResponse<object>.Fail("Игрок не является участником сделки."));
 
-            // Если оба подтвердили — выполняем обмен
             if (trade.IsConfirmedByPlayer1 && trade.IsConfirmedByPlayer2)
             {
-                // Перемещаем предметы
                 foreach (var item in trade.Player1Items)
                 {
                     item.PlayerId = trade.Player2Id;
@@ -119,7 +162,6 @@ namespace GameAuthAPI.Controllers
                 trade.IsCompleted = true;
                 await _context.SaveChangesAsync();
 
-                // Инвалидируем кэш
                 await _cache.RemoveAsync($"trade_{trade.Id}");
                 await _cache.RemoveAsync($"player_trades_{trade.Player1Id}");
                 await _cache.RemoveAsync($"player_trades_{trade.Player2Id}");
@@ -131,7 +173,6 @@ namespace GameAuthAPI.Controllers
 
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"trade_{trade.Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player1Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player2Id}");
@@ -148,6 +189,10 @@ namespace GameAuthAPI.Controllers
             if (dto == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные не предоставлены."));
 
+            var authError = await EnsureTradeParticipantAsync(dto.TradeId, dto.PlayerId);
+            if (authError != null)
+                return authError;
+
             var trade = await _context.PlayerTrades
                 .Include(t => t.Player1Items)
                 .Include(t => t.Player2Items)
@@ -159,11 +204,9 @@ namespace GameAuthAPI.Controllers
             if (trade.IsCompleted)
                 return BadRequest(ApiResponse<object>.Fail("Сделка уже завершена."));
 
-            // Проверяем, что игрок является участником
             if (dto.PlayerId != trade.Player1Id && dto.PlayerId != trade.Player2Id)
                 return BadRequest(ApiResponse<object>.Fail("Игрок не является участником сделки."));
 
-            // Проверяем, что предмет принадлежит игроку
             var playerItem = await _context.PlayerItems
                 .Include(pi => pi.Item)
                 .FirstOrDefaultAsync(pi => pi.PlayerId == dto.PlayerId && pi.ItemId == dto.ItemId);
@@ -171,7 +214,6 @@ namespace GameAuthAPI.Controllers
             if (playerItem == null)
                 return NotFound(ApiResponse<object>.Fail("Предмет не найден у игрока."));
 
-            // Добавляем предмет в сделку (в список соответствующего игрока)
             if (dto.PlayerId == trade.Player1Id)
             {
                 if (trade.Player1Items.Any(i => i.ItemId == dto.ItemId))
@@ -185,13 +227,11 @@ namespace GameAuthAPI.Controllers
                 trade.Player2Items.Add(playerItem);
             }
 
-            // Сбрасываем подтверждения, т.к. состав сделки изменился
             trade.IsConfirmedByPlayer1 = false;
             trade.IsConfirmedByPlayer2 = false;
 
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"trade_{trade.Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player1Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player2Id}");
@@ -208,6 +248,10 @@ namespace GameAuthAPI.Controllers
             if (dto == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные не предоставлены."));
 
+            var authError = await EnsureTradeParticipantAsync(dto.TradeId, dto.PlayerId);
+            if (authError != null)
+                return authError;
+
             var trade = await _context.PlayerTrades
                 .Include(t => t.Player1Items)
                 .Include(t => t.Player2Items)
@@ -219,7 +263,6 @@ namespace GameAuthAPI.Controllers
             if (trade.IsCompleted)
                 return BadRequest(ApiResponse<object>.Fail("Сделка уже завершена."));
 
-            // Определяем, из какого списка удалять
             var itemList = dto.PlayerId == trade.Player1Id ? trade.Player1Items : trade.Player2Items;
             var itemToRemove = itemList.FirstOrDefault(i => i.ItemId == dto.ItemId);
 
@@ -228,13 +271,11 @@ namespace GameAuthAPI.Controllers
 
             itemList.Remove(itemToRemove);
 
-            // Сбрасываем подтверждения
             trade.IsConfirmedByPlayer1 = false;
             trade.IsConfirmedByPlayer2 = false;
 
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"trade_{trade.Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player1Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player2Id}");
@@ -251,6 +292,10 @@ namespace GameAuthAPI.Controllers
             if (dto == null)
                 return BadRequest(ApiResponse<object>.Fail("Данные не предоставлены."));
 
+            var authError = await EnsureTradeParticipantAsync(dto.TradeId, dto.PlayerId);
+            if (authError != null)
+                return authError;
+
             var trade = await _context.PlayerTrades
                 .Include(t => t.Player1Items)
                 .Include(t => t.Player2Items)
@@ -262,14 +307,9 @@ namespace GameAuthAPI.Controllers
             if (trade.IsCompleted)
                 return BadRequest(ApiResponse<object>.Fail("Сделка уже завершена."));
 
-            if (dto.PlayerId != trade.Player1Id && dto.PlayerId != trade.Player2Id)
-                return BadRequest(ApiResponse<object>.Fail("Игрок не является участником сделки."));
-
-            // Удаляем сделку
             _context.PlayerTrades.Remove(trade);
             await _context.SaveChangesAsync();
 
-            // Инвалидируем кэш
             await _cache.RemoveAsync($"trade_{trade.Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player1Id}");
             await _cache.RemoveAsync($"player_trades_{trade.Player2Id}");
@@ -283,26 +323,26 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> GetTrade(int id)
         {
-            var cacheKey = $"trade_{id}";
-            var trade = await _cache.GetAsync<PlayerTradeDto>(cacheKey);
+            // Проверяем, что текущий пользователь является участником сделки или админом
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            var trade = await _context.PlayerTrades
+                .Include(t => t.Player1Items)
+                    .ThenInclude(pi => pi.Item)
+                .Include(t => t.Player2Items)
+                    .ThenInclude(pi => pi.Item)
+                .FirstOrDefaultAsync(t => t.Id == id);
 
             if (trade == null)
-            {
-                var dbTrade = await _context.PlayerTrades
-                    .Include(t => t.Player1Items)
-                        .ThenInclude(pi => pi.Item)
-                    .Include(t => t.Player2Items)
-                        .ThenInclude(pi => pi.Item)
-                    .FirstOrDefaultAsync(t => t.Id == id);
+                return NotFound(ApiResponse<object>.Fail("Сделка не найдена."));
 
-                if (dbTrade == null)
-                    return NotFound(ApiResponse<object>.Fail("Сделка не найдена."));
+            if (!User.IsInRole("Admin") && trade.Player1Id != authenticatedPlayerId && trade.Player2Id != authenticatedPlayerId)
+                return Forbid();
 
-                trade = _mapper.Map<PlayerTradeDto>(dbTrade);
-                await _cache.SetAsync(cacheKey, trade, TimeSpan.FromMinutes(5));
-            }
-
-            return Ok(ApiResponse<PlayerTradeDto>.Ok(trade));
+            var tradeDto = _mapper.Map<PlayerTradeDto>(trade);
+            return Ok(ApiResponse<PlayerTradeDto>.Ok(tradeDto));
         }
 
         // ===================== ПОЛУЧЕНИЕ ВСЕХ СДЕЛОК ИГРОКА =====================
@@ -311,6 +351,13 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> GetPlayerTrades(int playerId)
         {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            if (!User.IsInRole("Admin") && authenticatedPlayerId != playerId)
+                return Forbid();
+
             var cacheKey = $"player_trades_{playerId}";
             var trades = await _cache.GetAsync<List<PlayerTradeDto>>(cacheKey);
 

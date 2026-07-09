@@ -20,7 +20,12 @@ namespace GameAuthAPI.Models
         [ForeignKey("ReceiverId")]
         public Player? Receiver { get; set; }
 
-        // ========== ØÈÔĞÎÂÀÍÍÎÅ ÑÎÎÁÙÅÍÈÅ ==========
+        // ========== ÍÎÂÎÅ ÏÎËÅ ÄËß ×ÀÒÀ ÃÈËÜÄÈÈ ==========
+        public int? GuildId { get; set; }
+
+        [ForeignKey("GuildId")]
+        public Guild? Guild { get; set; }
+
         public string MessageEncrypted { get; set; } = string.Empty;
 
         [NotMapped]
@@ -51,7 +56,6 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrEmpty(message))
                 return string.Empty;
-
             return GetEncryptionService().Encrypt(message);
         }
 
@@ -59,7 +63,6 @@ namespace GameAuthAPI.Models
         {
             if (string.IsNullOrEmpty(encrypted))
                 return string.Empty;
-
             return GetEncryptionService().TryDecrypt(encrypted, out var result) ? result : "[SHIFROVANO]";
         }
     }

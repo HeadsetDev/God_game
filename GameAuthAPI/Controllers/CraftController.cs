@@ -24,6 +24,18 @@ namespace GameAuthAPI.Controllers
             _staticDataService = staticDataService;
         }
 
+        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
+
+            if (authenticatedPlayerId != requestedPlayerId)
+                return Forbid();
+
+            return null;
+        }
+
         [HttpGet("recipes/{playerId}")]
         [Authorize]
         public async Task<IActionResult> GetAvailableRecipes(int playerId)
@@ -135,18 +147,6 @@ namespace GameAuthAPI.Controllers
         {
             var recipes = await _staticDataService.GetCraftRecipesAsync();
             return Ok(ApiResponse<List<CraftRecipe>>.Ok(recipes ?? new List<CraftRecipe>()));
-        }
-
-        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
-        {
-            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
-                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
-
-            if (authenticatedPlayerId != requestedPlayerId)
-                return Forbid();
-
-            return null;
         }
     }
 }

@@ -66,6 +66,9 @@ namespace GameAuthAPI.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("GuildId")
+                        .HasColumnType("int");
+
                     b.Property<string>("MessageEncrypted")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -83,6 +86,8 @@ namespace GameAuthAPI.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("GuildId");
 
                     b.HasIndex("ReceiverId");
 
@@ -656,6 +661,10 @@ namespace GameAuthAPI.Migrations
 
             modelBuilder.Entity("GameAuthAPI.Models.ChatMessage", b =>
                 {
+                    b.HasOne("GameAuthAPI.Models.Guild", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId");
+
                     b.HasOne("GameAuthAPI.Models.Player", "Receiver")
                         .WithMany()
                         .HasForeignKey("ReceiverId")
@@ -666,6 +675,8 @@ namespace GameAuthAPI.Migrations
                         .HasForeignKey("SenderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Guild");
 
                     b.Navigation("Receiver");
 

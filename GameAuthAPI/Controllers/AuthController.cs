@@ -49,15 +49,10 @@ namespace GameAuthAPI.Controllers
         public async Task<IActionResult> Register([FromBody] RegisterUserDto registerUserDto)
         {
             if (registerUserDto == null)
-            {
-                return BadRequest("Данные для регистрации не предоставлены.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Данные для регистрации не предоставлены."));
 
-            // Проверяем сложность пароля
             if (!IsPasswordStrong(registerUserDto.Password))
-            {
-                return BadRequest("Пароль должен содержать минимум 8 символов, буквы и цифры.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Пароль должен содержать минимум 8 символов, буквы и цифры."));
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -70,7 +65,7 @@ namespace GameAuthAPI.Controllers
                         HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                         registerUserDto.Username
                     );
-                    return BadRequest("Пользователь уже существует.");
+                    return BadRequest(ApiResponse<object>.Fail("Пользователь уже существует."));
                 }
 
                 var defaultLocation = await _context.Locations.FirstOrDefaultAsync();
@@ -104,13 +99,13 @@ namespace GameAuthAPI.Controllers
                     registerUserDto.Username
                 );
 
-                return Ok("Пользователь зарегистрирован.");
+                return Ok(ApiResponse<object>.Ok(null, "Пользователь зарегистрирован."));
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Ошибка при регистрации");
-                return StatusCode(500, "Произошла ошибка при регистрации.");
+                return StatusCode(500, ApiResponse<object>.Fail("Произошла ошибка при регистрации."));
             }
         }
 
@@ -118,9 +113,7 @@ namespace GameAuthAPI.Controllers
         public async Task<IActionResult> Login([FromBody] LoginUserDto loginUserDto)
         {
             if (loginUserDto == null)
-            {
-                return BadRequest("Данные для входа не предоставлены.");
-            }
+                return BadRequest(ApiResponse<object>.Fail("Данные для входа не предоставлены."));
 
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var key = $"failed_login_{ip}_{loginUserDto.Username}";
@@ -133,7 +126,7 @@ namespace GameAuthAPI.Controllers
                     ip,
                     loginUserDto.Username
                 );
-                return StatusCode(403, "Слишком много попыток входа. Попробуйте позже.");
+                return StatusCode(403, ApiResponse<object>.Fail("Слишком много попыток входа. Попробуйте позже."));
             }
 
             try
@@ -147,7 +140,7 @@ namespace GameAuthAPI.Controllers
                         ip,
                         loginUserDto.Username
                     );
-                    return Unauthorized("Неверные данные.");
+                    return Unauthorized(ApiResponse<object>.Fail("Неверные данные."));
                 }
 
                 _cache.Remove(key);
@@ -160,12 +153,12 @@ namespace GameAuthAPI.Controllers
                     player.Name
                 );
 
-                return Ok(new { token });
+                return Ok(ApiResponse<object>.Ok(new { token }, "Вход выполнен."));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при входе");
-                return StatusCode(500, "Произошла ошибка при входе.");
+                return StatusCode(500, ApiResponse<object>.Fail("Произошла ошибка при входе."));
             }
         }
 
@@ -176,9 +169,7 @@ namespace GameAuthAPI.Controllers
 
             var player = _context.Players.FirstOrDefault(p => p.Name == username);
             if (player == null)
-            {
                 throw new InvalidOperationException("Пользователь не найден.");
-            }
 
             var claims = new List<Claim>
             {

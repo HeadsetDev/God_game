@@ -27,7 +27,20 @@ namespace GameAuthAPI.Controllers
             _stanceService = stanceService;
         }
 
-        // ===================== ОСНОВНЫЕ МЕТОДЫ =====================
+        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId, bool isAdminRequired = false)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
+
+            if (User.IsInRole("Admin"))
+                return null; // Админу разрешено всё
+
+            if (authenticatedPlayerId != requestedPlayerId)
+                return Forbid();
+
+            return null;
+        }
 
         [HttpGet]
         [Authorize(Policy = "AdminOnly")]
@@ -51,6 +64,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> GetPlayer(int id)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var cacheKey = $"player_{id}";
             var player = await _cache.GetAsync<PlayerDto>(cacheKey);
 
@@ -67,12 +84,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<PlayerDto>.Ok(player));
         }
 
-        // ===================== УРОВЕНЬ =====================
-
         [HttpPut("{id}/level")]
         [Authorize]
         public async Task<IActionResult> UpdatePlayerLevel(int id, [FromBody] int newLevel)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             if (newLevel < 0)
                 return BadRequest(ApiResponse<object>.Fail("Уровень не может быть отрицательным."));
 
@@ -90,12 +109,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<PlayerDto>.Ok(_mapper.Map<PlayerDto>(player), "Уровень обновлён."));
         }
 
-        // ===================== ИНВЕНТАРЬ =====================
-
         [HttpGet("{id}/inventory")]
         [Authorize]
         public async Task<IActionResult> GetPlayerInventory(int id)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var cacheKey = $"player_inventory_{id}";
             var inventory = await _cache.GetAsync<List<PlayerItemDto>>(cacheKey);
 
@@ -120,6 +141,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> AddItemToPlayer(int id, [FromBody] int itemId)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var player = await _context.Players.FindAsync(id);
             if (player == null)
                 return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
@@ -155,12 +180,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<object>.Ok(null, "Предмет добавлен в инвентарь."));
         }
 
-        // ===================== ЭКИПИРОВКА =====================
-
         [HttpPut("{id}/equip/{itemId}")]
         [Authorize]
         public async Task<IActionResult> EquipItem(int id, int itemId)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var playerItem = await _context.PlayerItems
                 .Include(pi => pi.Item)
                 .FirstOrDefaultAsync(pi => pi.PlayerId == id && pi.ItemId == itemId);
@@ -193,6 +220,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> UnequipItem(int id, int itemId)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var playerItem = await _context.PlayerItems
                 .FirstOrDefaultAsync(pi => pi.PlayerId == id && pi.ItemId == itemId);
 
@@ -209,12 +240,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<object>.Ok(null, "Предмет снят."));
         }
 
-        // ===================== СТАТИСТИКА =====================
-
         [HttpGet("{id}/stats")]
         [Authorize]
         public async Task<IActionResult> GetPlayerStats(int id)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var cacheKey = $"player_stats_{id}";
             var stats = await _cache.GetAsync<Dictionary<string, double>>(cacheKey);
 
@@ -239,6 +272,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> GetPvPStats(int id)
         {
+            var authError = EnsureOwnPlayerId(id);
+            if (authError != null)
+                return authError;
+
             var cacheKey = $"player_pvp_{id}";
             var stats = await _cache.GetAsync<object>(cacheKey);
 
@@ -262,17 +299,14 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<object>.Ok(stats));
         }
 
-        // ===================== УПРАВЛЕНИЕ КЛАССОМ =====================
-
         [HttpGet("me/class")]
         [Authorize]
         public async Task<IActionResult> GetMyClass()
         {
-            var playerIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (playerIdClaim == null)
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var playerId))
                 return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
 
-            var playerId = int.Parse(playerIdClaim.Value);
             var player = await _context.Players.FindAsync(playerId);
             if (player == null)
                 return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
@@ -290,11 +324,10 @@ namespace GameAuthAPI.Controllers
         [Authorize]
         public async Task<IActionResult> SetMyClass([FromBody] ClassType newClass)
         {
-            var playerIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (playerIdClaim == null)
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var playerId))
                 return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
 
-            var playerId = int.Parse(playerIdClaim.Value);
             var player = await _context.Players.FindAsync(playerId);
             if (player == null)
                 return NotFound(ApiResponse<object>.Fail("Игрок не найден."));
@@ -314,8 +347,6 @@ namespace GameAuthAPI.Controllers
                 player.ActiveStance
             }, $"Класс изменён на {newClass}."));
         }
-
-        // ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =====================
 
         private List<StanceType> GetStancesForClass(ClassType classType)
         {

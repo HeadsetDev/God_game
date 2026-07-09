@@ -51,6 +51,20 @@ namespace GameAuthAPI.Profiles
 
             // Добавлено: Преобразование ItemStatsDto в ItemStats (если это необходимо)
             CreateMap<ItemStatsDto, ItemStats>();
+
+            // В разделе ChatMessage -> ChatMessageDto добавляем маппинг GuildId
+            CreateMap<ChatMessage, ChatMessageDto>()
+                .ForMember(dest => dest.SenderName, opt => opt.MapFrom(src => src.Sender.Name))
+                .ForMember(dest => dest.ReceiverName, opt => opt.MapFrom(src => src.Receiver != null ? src.Receiver.Name : null))
+                .ForMember(dest => dest.GuildId, opt => opt.MapFrom(src => src.GuildId)); // Добавить эту строку
+
+            CreateMap<ChatMessageDto, ChatMessage>()
+                .ForMember(dest => dest.MessageEncrypted, opt => opt.Ignore()) // игнорируем, т.к. устанавливается через свойство Message
+                .ForMember(dest => dest.Message, opt => opt.MapFrom(src => src.Message))
+                .ForMember(dest => dest.GuildId, opt => opt.MapFrom(src => src.GuildId))
+                .ForMember(dest => dest.Guild, opt => opt.Ignore())
+                .ForMember(dest => dest.Sender, opt => opt.Ignore())
+                .ForMember(dest => dest.Receiver, opt => opt.Ignore());
         }
     }
 }

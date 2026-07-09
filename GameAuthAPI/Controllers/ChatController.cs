@@ -4,11 +4,9 @@ using GameAuthAPI.DTOs;
 using GameAuthAPI.Models;
 using GameAuthAPI.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace GameAuthAPI.Controllers
 {
@@ -28,13 +26,13 @@ namespace GameAuthAPI.Controllers
         }
 
         [HttpGet]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<ActionResult<IEnumerable<ChatMessageDto>>> GetMessages(
+        public async Task<IActionResult> GetMessages(
             [FromQuery] ChatMessageType? type = null,
             [FromQuery] int? receiverId = null,
+            [FromQuery] int? guildId = null,
             [FromQuery] int limit = 50)
         {
-            var cacheKey = $"chat_messages_{type}_{receiverId}_{limit}";
+            var cacheKey = $"chat_messages_{type}_{receiverId}_{guildId}_{limit}";
             var messages = await _cache.GetAsync<List<ChatMessageDto>>(cacheKey);
 
             if (messages == null)
@@ -42,17 +40,17 @@ namespace GameAuthAPI.Controllers
                 var query = _context.ChatMessages
                     .Include(cm => cm.Sender)
                     .Include(cm => cm.Receiver)
+                    .Include(cm => cm.Guild)
                     .AsQueryable();
 
                 if (type.HasValue)
-                {
                     query = query.Where(cm => cm.Type == type.Value);
-                }
 
                 if (receiverId.HasValue)
-                {
                     query = query.Where(cm => cm.ReceiverId == receiverId.Value);
-                }
+
+                if (guildId.HasValue)
+                    query = query.Where(cm => cm.GuildId == guildId.Value);
 
                 messages = await query
                     .OrderByDescending(cm => cm.Timestamp)
@@ -60,74 +58,95 @@ namespace GameAuthAPI.Controllers
                     .Select(cm => _mapper.Map<ChatMessageDto>(cm))
                     .ToListAsync();
 
-                // Переворачиваем для хронологического порядка
                 messages.Reverse();
-
                 await _cache.SetAsync(cacheKey, messages, TimeSpan.FromMinutes(5));
             }
 
-            return Ok(messages ?? new List<ChatMessageDto>());
+            return Ok(ApiResponse<List<ChatMessageDto>>.Ok(messages ?? new List<ChatMessageDto>()));
         }
 
         [HttpPost]
         [Authorize]
-        [ProducesResponseType(StatusCodes.Status201Created)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<ActionResult<ChatMessageDto>> SendMessage([FromBody] ChatMessageDto chatMessageDto)
+        public async Task<IActionResult> SendMessage([FromBody] ChatMessageDto chatMessageDto)
         {
             if (chatMessageDto == null)
+                return BadRequest(ApiResponse<object>.Fail("Данные сообщения не предоставлены."));
+
+            // Проверка отправителя
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var authenticatedUserId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
+
+            if (authenticatedUserId != chatMessageDto.SenderId)
+                return Forbid();
+
+            var sender = await _context.Players.FindAsync(chatMessageDto.SenderId);
+            if (sender == null)
+                return NotFound(ApiResponse<object>.Fail("Отправитель не найден."));
+
+            // Валидация в зависимости от типа
+            if (chatMessageDto.Type == ChatMessageType.Private)
             {
-                return BadRequest("Данные сообщения не предоставлены.");
+                if (!chatMessageDto.ReceiverId.HasValue)
+                    return BadRequest(ApiResponse<object>.Fail("Для личного сообщения нужен получатель."));
+
+                var receiver = await _context.Players.FindAsync(chatMessageDto.ReceiverId.Value);
+                if (receiver == null)
+                    return NotFound(ApiResponse<object>.Fail("Получатель не найден."));
+            }
+            else if (chatMessageDto.Type == ChatMessageType.Guild)
+            {
+                if (!chatMessageDto.GuildId.HasValue)
+                    return BadRequest(ApiResponse<object>.Fail("Для сообщения в гильдию нужен GuildId."));
+
+                // Проверяем, что игрок состоит в этой гильдии
+                var isMember = await _context.PlayerGuilds
+                    .AnyAsync(pg => pg.PlayerId == chatMessageDto.SenderId && pg.GuildId == chatMessageDto.GuildId.Value);
+                if (!isMember)
+                    return Forbid();
             }
 
             var chatMessage = _mapper.Map<ChatMessage>(chatMessageDto);
+            chatMessage.Timestamp = DateTime.UtcNow;
+
             _context.ChatMessages.Add(chatMessage);
             await _context.SaveChangesAsync();
 
             var createdMessageDto = _mapper.Map<ChatMessageDto>(chatMessage);
 
-            // Инвалидируем кэш
-            await _cache.RemoveAsync($"chat_messages_{null}_{null}_50");
-            await _cache.RemoveAsync($"chat_messages_Global_{null}_50");
+            // Инвалидация кэша
+            await _cache.RemoveAsync($"chat_messages_{null}_{null}_{null}_50");
+            await _cache.RemoveAsync($"chat_messages_Global_{null}_{null}_50");
             if (chatMessageDto.ReceiverId.HasValue)
             {
-                await _cache.RemoveAsync($"chat_messages_Private_{chatMessageDto.ReceiverId}_50");
-                await _cache.RemoveAsync($"chat_messages_Private_{chatMessageDto.SenderId}_50");
+                await _cache.RemoveAsync($"chat_messages_Private_{chatMessageDto.ReceiverId}_{null}_50");
+                await _cache.RemoveAsync($"chat_messages_Private_{chatMessageDto.SenderId}_{null}_50");
+            }
+            if (chatMessageDto.GuildId.HasValue)
+            {
+                await _cache.RemoveAsync($"chat_messages_Guild_{null}_{chatMessageDto.GuildId}_50");
             }
 
-            return CreatedAtAction(nameof(GetMessages), new { id = createdMessageDto.Id }, createdMessageDto);
+            return CreatedAtAction(nameof(GetMessages), new { id = createdMessageDto.Id },
+                ApiResponse<ChatMessageDto>.Ok(createdMessageDto, "Сообщение отправлено."));
         }
 
         [HttpGet("guild/{guildId}")]
         [Authorize]
-        public async Task<ActionResult<IEnumerable<ChatMessageDto>>> GetGuildMessages(
-            int guildId,
-            [FromQuery] int limit = 50)
+        public async Task<IActionResult> GetGuildMessages(int guildId, [FromQuery] int limit = 50)
         {
-            var cacheKey = $"chat_guild_{guildId}_{limit}";
-            var messages = await _cache.GetAsync<List<ChatMessageDto>>(cacheKey);
+            // Проверка, что пользователь состоит в гильдии
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var authenticatedUserId))
+                return Unauthorized(ApiResponse<object>.Fail("Пользователь не авторизован."));
 
-            if (messages == null)
-            {
-                // Для гильдии используем отдельную логику или фильтр по типу
-                var query = _context.ChatMessages
-                    .Include(cm => cm.Sender)
-                    .Include(cm => cm.Receiver)
-                    .Where(cm => cm.Type == ChatMessageType.Guild)
-                    .AsQueryable();
+            var isMember = await _context.PlayerGuilds
+                .AnyAsync(pg => pg.PlayerId == authenticatedUserId && pg.GuildId == guildId);
+            if (!isMember)
+                return Forbid();
 
-                messages = await query
-                    .OrderByDescending(cm => cm.Timestamp)
-                    .Take(limit)
-                    .Select(cm => _mapper.Map<ChatMessageDto>(cm))
-                    .ToListAsync();
-
-                messages.Reverse();
-                await _cache.SetAsync(cacheKey, messages, TimeSpan.FromMinutes(5));
-            }
-
-            return Ok(messages ?? new List<ChatMessageDto>());
+            // Используем общий метод с фильтром по guildId
+            return await GetMessages(ChatMessageType.Guild, null, guildId, limit);
         }
     }
 }

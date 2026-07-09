@@ -1,6 +1,6 @@
 using GameAuthAPI.Models;
-    
-    namespace GameAuthAPI.DTOs
+
+namespace GameAuthAPI.DTOs
 {
     public class ChatMessageDto
     {
@@ -9,6 +9,7 @@ using GameAuthAPI.Models;
         public string SenderName { get; set; } = string.Empty;
         public int? ReceiverId { get; set; }
         public string? ReceiverName { get; set; }
+        public int? GuildId { get; set; } // Добавляем
         public string Message { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
         public ChatMessageType Type { get; set; }

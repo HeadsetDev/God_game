@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GameAuthAPI.Migrations
 {
     [DbContext(typeof(GameDbContext))]
-    [Migration("20260708113159_InitialCreate")]
+    [Migration("20260709115735_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />

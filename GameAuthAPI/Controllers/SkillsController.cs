@@ -22,6 +22,18 @@ namespace GameAuthAPI.Controllers
             _cache = cache;
         }
 
+        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
+                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
+
+            if (authenticatedPlayerId != requestedPlayerId)
+                return Forbid();
+
+            return null;
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAllSkills()
         {
@@ -55,11 +67,11 @@ namespace GameAuthAPI.Controllers
             return Ok(ApiResponse<Skill>.Ok(skill));
         }
 
-        // Публичный просмотр навыков игрока — без ограничения владения.
         [HttpGet("player/{playerId}")]
         [Authorize]
         public async Task<IActionResult> GetPlayerSkills(int playerId)
         {
+            // Просмотр чужих навыков разрешён, так как это публичная информация
             var cacheKey = $"player_skills_{playerId}";
             var skills = await _cache.GetAsync<List<Skill>>(cacheKey);
 
@@ -137,7 +149,6 @@ namespace GameAuthAPI.Controllers
             if (playerSkill == null)
                 return NotFound(ApiResponse<object>.Fail("Навык не найден у игрока."));
 
-            // Здесь будет логика применения навыка в бою (через BattleHub)
             return Ok(ApiResponse<object>.Ok(
                 new
                 {
@@ -170,20 +181,6 @@ namespace GameAuthAPI.Controllers
             await _cache.RemoveAsync($"player_skill_{playerId}_{skillId}");
 
             return Ok(ApiResponse<object>.Ok(null, "Навык забыт."));
-        }
-
-        // Не даёт выполнить действие от имени чужого playerId,
-        // даже если он подставлен в теле запроса или URL.
-        private IActionResult? EnsureOwnPlayerId(int requestedPlayerId)
-        {
-            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (claim == null || !int.TryParse(claim.Value, out var authenticatedPlayerId))
-                return Unauthorized(ApiResponse<object>.Fail("Идентификатор пользователя не найден в токене."));
-
-            if (authenticatedPlayerId != requestedPlayerId)
-                return Forbid();
-
-            return null;
         }
     }
 
